@@ -1,10 +1,10 @@
 Attribute VB_Name = "Modulo_qPCR"
 ' qPCR - Pegar export StepOne COMPLETO en RAW (celda A1). Macro: ProcesarPlaca
-' Version 3.5 - Parseo Ct locale ES; Datos numericos; Calculos/Resultados fiables
+' Version 3.6 - Fix bloque SYP (conCalcs); Calculos sin formulas
 
 Option Explicit
 
-Private Const MACRO_VER As String = "3.5"
+Private Const MACRO_VER As String = "3.6"
 Private Const CT_MIN As Double = 5#
 Private Const CT_MAX As Double = 50#
 Private Const SH_DATOS As String = "Datos"
@@ -248,6 +248,14 @@ Private Function AsegurarMatriz2D(v As Variant, nFilas As Long, nCols As Long) A
         Next j
     Next i
     AsegurarMatriz2D = m
+End Function
+
+Private Function NormalizarGen(ByVal t As String) As String
+    Dim u As String
+    u = UCase$(Trim$(t))
+    If u = HK_PPIA Or InStr(u, "PPIA") > 0 Then NormalizarGen = HK_PPIA: Exit Function
+    If u = HK_SYP Or InStr(u, "SYP") > 0 Then NormalizarGen = HK_SYP: Exit Function
+    NormalizarGen = u
 End Function
 
 Private Function MuestraOK(ByVal s As String) As Boolean
@@ -518,7 +526,7 @@ Private Sub LeerBloque(bloque As Variant, cS As Long, cT As Long, cCt As Long, _
 
     For f = 1 To nf
         sample = UCase$(ValTxt(bloque, f, cS))
-        tgt = UCase$(ValTxt(bloque, f, cT))
+        tgt = NormalizarGen(ValTxt(bloque, f, cT))
         If Not MuestraOK(sample) Or tgt = "" Then
             vacias = vacias + 1
             If vacias > 20 Then Exit For
@@ -711,7 +719,7 @@ Private Sub EscribirDatos(ws As Worksheet)
     ws.Columns("C:F").ColumnWidth = 12
 End Sub
 
-'--- Una fila por muestra: Ct numericos + formulas dCt (=B-C) que funcionan en Excel ES ---
+'--- Una fila por muestra: Ct y dCt (solo valores, sin formulas Excel) ---
 Private Sub EscribirCalculos(ws As Worksheet, orden As Collection, goi As String)
     Dim n As Long, i As Long, r As Long
     Dim sample As String
@@ -766,13 +774,21 @@ Private Sub EscribirCalculos(ws As Worksheet, orden As Collection, goi As String
         Else
             ws.Cells(r, 4).Value = "Indeterminado"
         End If
-        ws.Cells(r, 5).Formula = "=IF(OR(B" & r & "=""Indeterminado"",C" & r & "=""Indeterminado""),""Indeterminado"",B" & r & "-C" & r & ")"
-        ws.Cells(r, 6).Formula = "=IF(OR(B" & r & "=""Indeterminado"",D" & r & "=""Indeterminado""),""Indeterminado"",B" & r & "-D" & r & ")"
         If ixG > 0 And ixP > 0 And ixS > 0 Then
             If Not EsIndetIdx(ixG) And Not EsIndetIdx(ixP) And Not EsIndetIdx(ixS) Then
                 dP(i) = CDbl(ctG) - CDbl(ctP)
                 dS(i) = CDbl(ctG) - CDbl(ctS)
+                ws.Cells(r, 5).Value = dP(i)
+                ws.Cells(r, 6).Value = dS(i)
+                ws.Cells(r, 5).NumberFormat = "0.000000"
+                ws.Cells(r, 6).NumberFormat = "0.000000"
+            Else
+                ws.Cells(r, 5).Value = "Indeterminado"
+                ws.Cells(r, 6).Value = "Indeterminado"
             End If
+        Else
+            ws.Cells(r, 5).Value = "Indeterminado"
+            ws.Cells(r, 6).Value = "Indeterminado"
         End If
     Next i
 
@@ -835,9 +851,9 @@ Private Sub EscribirTodo(ws As Worksheet, wsG As Worksheet, orden As Collection,
         ixG = BuscarIdx(sample, goi)
         If ixG = 0 Then GoTo SigO
         If okCalc(i) Then
-            Call FilaCalc(ws, rowOut, 1, sample, goi, ixG, dP(i), avgP, True, _
+            Call FilaCalc(ws, rowOut, 1, sample, goi, ixG, dP(i), avgP, _
                 (2 ^ (-(dP(i) - avgP)) > FC_EXTREMO Or 2 ^ (-(dP(i) - avgP)) < 1# / FC_EXTREMO))
-            Call FilaCalc(ws, rowOut, 17, sample, goi, ixG, dS(i), avgS, False, _
+            Call FilaCalc(ws, rowOut, 17, sample, goi, ixG, dS(i), avgS, _
                 (2 ^ (-(dS(i) - avgS)) > FC_EXTREMO Or 2 ^ (-(dS(i) - avgS)) < 1# / FC_EXTREMO))
             If Left$(sample, 1) = "C" Then
                 cS.Add sample: cP.Add 2 ^ (-(dP(i) - avgP)): cY.Add 2 ^ (-(dS(i) - avgS))
@@ -929,7 +945,7 @@ Private Sub EscribirCtCeldas(ws As Worksheet, r As Long, sc As Long, ix As Long)
 End Sub
 
 Private Sub FilaCalc(ws As Worksheet, r As Long, sc As Long, sample As String, tgt As String, ix As Long, _
-    dCt As Double, avgC As Double, conCalcs As Boolean, flagFcExtremo As Boolean)
+    dCt As Double, avgC As Double, flagFcExtremo As Boolean)
     Dim ddCt As Double, fc As Double
     Dim rojo As Boolean, naranja As Boolean
 
@@ -939,19 +955,17 @@ Private Sub FilaCalc(ws As Worksheet, r As Long, sc As Long, sample As String, t
     rojo = (G_CtSd(ix) > SD_UMBRAL)
     naranja = UnReplicaIdx(ix)
     Call MarcarCelda(ws.Cells(r, sc), rojo Or EsIndetIdx(ix), naranja)
-    If conCalcs Then
-        ddCt = dCt - avgC
-        fc = 2 ^ (-ddCt)
-        ws.Cells(r, sc + 5).Value = dCt
-        ws.Cells(r, sc + 5).NumberFormat = "0.000000"
-        ws.Cells(r, sc + 7).Value = ddCt
-        ws.Cells(r, sc + 7).NumberFormat = "0.000000"
-        ws.Cells(r, sc + 8).Value = fc
-        ws.Cells(r, sc + 8).NumberFormat = "0.000000"
-        If flagFcExtremo Then rojo = True
-        Call MarcarCelda(ws.Cells(r, sc + 8), rojo, naranja)
-        Call MarcarCelda(ws.Cells(r, sc + 5), rojo, naranja)
-    End If
+    ddCt = dCt - avgC
+    fc = 2 ^ (-ddCt)
+    ws.Cells(r, sc + 5).Value = dCt
+    ws.Cells(r, sc + 5).NumberFormat = "0.000000"
+    ws.Cells(r, sc + 7).Value = ddCt
+    ws.Cells(r, sc + 7).NumberFormat = "0.000000"
+    ws.Cells(r, sc + 8).Value = fc
+    ws.Cells(r, sc + 8).NumberFormat = "0.000000"
+    If flagFcExtremo Then rojo = True
+    Call MarcarCelda(ws.Cells(r, sc + 8), rojo, naranja)
+    Call MarcarCelda(ws.Cells(r, sc + 5), rojo, naranja)
 End Sub
 
 Private Sub FilaIndeterminado(ws As Worksheet, r As Long, sc As Long, sample As String, tgt As String, ix As Long)

@@ -47,11 +47,11 @@ En **RAW**, celda **A1**, pegar el export **completo** del StepOne:
 
 Varias placas: pegar una debajo de otra (o usar **Añadir placa abajo**).
 
-## Hojas intermedias (macro 3.5)
+## Hojas intermedias (macro 3.6)
 
-- **Datos** — muestra × gen con Ct **numéricos** (parseo correcto con coma/punto en Excel español).
-- **Calculos** — Ct por muestra; ΔCt con fórmula `=B3-C3` (sobre números, no SUMIFS).
-- **Resultados** — valores calculados (ΔCt, ΔΔCt, 2^(-ΔΔCt)); no depende de fórmulas rotas.
+- **Datos** — muestra × gen con Ct numéricos.
+- **Calculos** — solo valores (sin fórmulas Excel); PPIA y SYP en columnas separadas.
+- **Resultados** — bloque izquierdo PPIA, bloque derecho SYP (ambos con ΔCt / ΔΔCt / FC).
 
 ## Resultados
 
