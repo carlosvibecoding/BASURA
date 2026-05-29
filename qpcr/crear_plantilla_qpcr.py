@@ -37,16 +37,21 @@ ASSETS_DIR = Path(__file__).resolve().parent / "assets"
 ASSET_RATON_BTN = ASSETS_DIR / "raton_boton.png"
 ASSET_FONDO_RAW = ASSETS_DIR / "fondo_cabecera_raw.png"
 
-# Paleta laboratorio (sutil)
-LAB_BG = "F0F7FA"
-LAB_HEADER = "E0F2F1"
-LAB_ACCENT = "00695C"
-LAB_TEXT = "37474F"
+# Paleta laboratorio / biología molecular
+LAB_BG = "F0F7FA"        # fondo datos
+LAB_HEADER = "E0F2F1"    # cabecera (verde agua claro)
+LAB_HEADER2 = "B2DFDB"   # panel / acento medio
+LAB_ACCENT = "00695C"    # teal principal
+LAB_ACCENT_DK = "004D40"  # teal oscuro
+LAB_TEXT = "37474F"      # texto
 
-THIN = Side(style="thin", color="000000")
+THIN = Side(style="thin", color="B0BEC5")
+THIN_BLACK = Side(style="thin", color="000000")
 BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
 HEADER_FILL_PPIA = PatternFill("solid", fgColor="D9E1F2")
 HEADER_FILL_SYP = PatternFill("solid", fgColor="E2EFDA")
+LAB_HEADER_FILL = PatternFill("solid", fgColor=LAB_HEADER)
+LAB_TITLE_FONT = Font(bold=True, color=LAB_ACCENT_DK)
 YELLOW_FILL = PatternFill("solid", fgColor="FFFF00")
 GREEN_FILL = PatternFill("solid", fgColor="92D050")
 RED_FONT = Font(color="FF0000", bold=True)
@@ -94,16 +99,30 @@ def write_instructions(ws) -> None:
     ]
     for i, line in enumerate(lines, 1):
         cell = ws.cell(row=i, column=1, value=line)
+        cell.alignment = Alignment(vertical="center", wrap_text=False)
         if i == 1:
-            cell.font = Font(bold=True, size=14)
+            cell.font = Font(bold=True, size=15, color=LAB_ACCENT_DK)
+            cell.fill = LAB_HEADER_FILL
+            ws.cell(row=1, column=2).fill = LAB_HEADER_FILL
+            ws.row_dimensions[1].height = 26
+        elif line.endswith(":") or line.isupper():
+            cell.font = Font(bold=True, color=LAB_ACCENT)
+        elif line.strip().startswith("•") or line.strip().startswith("Paso"):
+            cell.font = Font(color=LAB_TEXT)
     ws["A20"] = "CONFIGURACIÓN DE GRUPOS"
-    ws["A20"].font = Font(bold=True, size=12)
+    ws["A20"].font = Font(bold=True, size=12, color=LAB_ACCENT_DK)
+    cfg_fill = PatternFill("solid", fgColor="ECF6F4")
+    for r in (21, 22, 23):
+        for c in (1, 2):
+            ws.cell(row=r, column=c).fill = cfg_fill
+            ws.cell(row=r, column=c).border = BORDER
     ws["A21"] = "Prefijos control (promedio ΔCt):"
     ws["B21"] = "C"
     ws["A22"] = "Nombres grupos (C=Controles;S=Suicidas;A=Alcohólicos):"
     ws["B22"] = ""
     ws["A23"] = "Boton procesar:"
-    ws["B23"] = "Clic en el raton (columna O, hoja RAW) = Procesar placa (macro 4.2)"
+    ws["B23"] = "Clic en el raton (columna O, hoja RAW) = Procesar placa (macro 4.3)"
+    ws["B21"].font = BOLD
     ws.column_dimensions["B"].width = 55
 
 
@@ -111,35 +130,38 @@ def setup_raw_sheet(ws) -> None:
     ws.title = "RAW"
     ws.sheet_view.showGridLines = True
     fill_hdr = PatternFill("solid", fgColor=LAB_HEADER)
-    fill_panel = PatternFill("solid", fgColor="B2DFDB")
+    fill_panel = PatternFill("solid", fgColor=LAB_HEADER2)
     fill_data = PatternFill("solid", fgColor=LAB_BG)
+    # Franja molecular A1:N2 (fina, no tapa el pegado en filas 3+)
     for col in range(1, 15):
         ws.cell(row=1, column=col).fill = fill_hdr
         ws.cell(row=2, column=col).fill = fill_hdr
-    for col in range(15, 20):
-        ws.cell(row=1, column=col).fill = fill_panel
-        ws.cell(row=2, column=col).fill = fill_panel
+    # Panel lateral O:S (controles los coloca la macro)
+    for row in range(1, 11):
+        for col in range(15, 20):
+            ws.cell(row=row, column=col).fill = fill_panel
     for row in range(3, 80):
         for col in range(1, 15):
             ws.cell(row=row, column=col).fill = fill_data
-    ws["A1"] = "Pegue aqui el export StepOne completo (A1): RGS + PPIA + SYP"
+    ws["A1"] = "Pegue aqui el export StepOne completo (A1): gen + PPIA + SYP"
     ws["A1"].font = Font(italic=True, color=LAB_TEXT, size=10)
-    ws["O1"] = "qPCR"
-    ws["O1"].font = Font(bold=True, color=LAB_ACCENT, size=11)
-    ws["O2"] = "Ratón = procesar"
+    ws["O1"] = "qPCR · lab"
+    ws["O1"].font = Font(bold=True, color=LAB_ACCENT_DK, size=12)
+    ws["O2"] = "Clic en el ratón = procesar placa"
     ws["O2"].font = Font(italic=True, color=LAB_ACCENT, size=9)
     ws.column_dimensions["A"].width = 14
     for col in range(2, 15):
         ws.column_dimensions[get_column_letter(col)].width = 12
-    ws.column_dimensions["O"].width = 3
+    ws.column_dimensions["O"].width = 2
     ws.column_dimensions["P"].width = 11
     ws.column_dimensions["Q"].width = 11
+    ws.column_dimensions["R"].width = 11
     ws.row_dimensions[1].height = 6
     ws.row_dimensions[2].height = 30
     if ASSET_FONDO_RAW.is_file():
         bg = XlImage(str(ASSET_FONDO_RAW))
-        bg.width = 640
-        bg.height = 48
+        bg.width = 680
+        bg.height = 38
         ws.add_image(bg, "A1")
 
 
@@ -400,37 +422,52 @@ def build_workbook(demo_raw: Path | None = None) -> Workbook:
 
 
 def decorar_cabecera_hoja(ws, cols: int = 8) -> None:
+    """Tema molecular sutil: cabecera verde agua + esquina ADN."""
     fill = PatternFill("solid", fgColor=LAB_HEADER)
     for c in range(1, cols + 1):
         cell = ws.cell(row=1, column=c)
-        cell.fill = fill
-        if cell.value:
+        if cell.fill is None or cell.fill.fgColor.rgb in (None, "00000000"):
+            cell.fill = fill
+        if cell.value and (cell.font is None or not cell.font.color):
             cell.font = Font(bold=True, color=LAB_ACCENT)
+    if ws.row_dimensions[1].height is None or ws.row_dimensions[1].height < 18:
+        ws.row_dimensions[1].height = 18
     corner = ASSETS_DIR / "dna_esquina.png"
     if corner.is_file():
         img = XlImage(str(corner))
-        img.width = 36
-        img.height = 36
+        img.width = 30
+        img.height = 30
         ws.add_image(img, f"{get_column_letter(cols)}1")
 
 
 def embed_recursos_lab(wb: Workbook) -> None:
-    """Hoja oculta Recursos: raton (boton) y fondo ADN para la macro."""
+    """Hoja oculta Recursos con imágenes para la macro.
+
+    Orden FIJO de shapes (la macro las copia por índice):
+      1) ratón botón   2) banner ADN cabecera   3) esquina ADN
+    """
     if "Recursos" in wb.sheetnames:
         ws = wb["Recursos"]
     else:
         ws = wb.create_sheet("Recursos")
     ws.sheet_state = "hidden"
+    ws["A20"] = "Recursos gráficos qPCR (no borrar). Orden: 1 raton, 2 banner, 3 esquina."
     if ASSET_RATON_BTN.is_file():
         img = XlImage(str(ASSET_RATON_BTN))
         img.width = 72
-        img.height = 72
+        img.height = 48
         ws.add_image(img, "A1")
     if ASSET_FONDO_RAW.is_file():
         bg = XlImage(str(ASSET_FONDO_RAW))
-        bg.width = 720
-        bg.height = 72
+        bg.width = 680
+        bg.height = 40
         ws.add_image(bg, "D1")
+    corner = ASSETS_DIR / "dna_esquina.png"
+    if corner.is_file():
+        cn = XlImage(str(corner))
+        cn.width = 30
+        cn.height = 30
+        ws.add_image(cn, "P1")
 
 
 def setup_datos_calc_sheets(wb) -> None:
