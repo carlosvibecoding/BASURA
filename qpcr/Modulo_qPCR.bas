@@ -1,10 +1,12 @@
 Attribute VB_Name = "Modulo_qPCR"
 ' qPCR - Pegar export StepOne COMPLETO en RAW (celda A1). Macro: ProcesarPlaca
-' Version 3.4 - Hojas Datos/Calculos con formulas; fix Call OrdenarMuestras
+' Version 3.5 - Parseo Ct locale ES; Datos numericos; Calculos/Resultados fiables
 
 Option Explicit
 
-Private Const MACRO_VER As String = "3.4"
+Private Const MACRO_VER As String = "3.5"
+Private Const CT_MIN As Double = 5#
+Private Const CT_MAX As Double = 50#
 Private Const SH_DATOS As String = "Datos"
 Private Const SH_CALC As String = "Calculos"
 Private Const HK_PPIA As String = "PPIA"
@@ -318,7 +320,10 @@ End Function
 Private Function EsCtIndeterminado(v As Variant) As Boolean
     Dim t As String
     If IsEmpty(v) Then EsCtIndeterminado = True: Exit Function
-    If IsNumeric(v) Then EsCtIndeterminado = False: Exit Function
+    If IsNumeric(v) Then
+        If CtEnRango(CDbl(v)) Then EsCtIndeterminado = False Else EsCtIndeterminado = True
+        Exit Function
+    End If
     t = UCase$(Trim$(CStr(v)))
     If t = "" Then EsCtIndeterminado = True: Exit Function
     If InStr(t, "UNDETERMIN") > 0 Then EsCtIndeterminado = True: Exit Function
@@ -326,28 +331,90 @@ Private Function EsCtIndeterminado(v As Variant) As Boolean
     If t = "N/A" Or t = "#N/A" Or t = "NA" Then EsCtIndeterminado = True
 End Function
 
+Private Function CtEnRango(d As Double) As Boolean
+    CtEnRango = (d >= CT_MIN And d <= CT_MAX)
+End Function
+
+' Convierte Ct del export (coma/punto, Excel ES) a numero; Empty si no valido
+Private Function ParseCtNum(v As Variant) As Variant
+    Dim d As Double
+  ParseCtNum = Empty
+    If EsCtIndeterminado(v) Then Exit Function
+    If IsNumeric(v) Then
+        d = CDbl(v)
+        If CtEnRango(d) Then ParseCtNum = d: Exit Function
+    End If
+    d = ParseCtDesdeTexto(Trim$(CStr(v)))
+    If CtEnRango(d) Then ParseCtNum = d
+End Function
+
+Private Function ParseCtDesdeTexto(s As String) As Double
+    Dim t As String, p() As String, d As Double, nDot As Long, nCom As Long
+    ParseCtDesdeTexto = 0#
+    t = Replace$(Replace$(s, " ", ""), Chr$(160), "")
+    If t = "" Then Exit Function
+    nDot = Len(t) - Len(Replace$(t, ".", ""))
+    nCom = Len(t) - Len(Replace$(t, ",", ""))
+    If nCom = 1 And nDot = 0 Then
+        t = Replace$(t, ",", ".")
+    ElseIf nCom = 1 And nDot >= 1 Then
+        t = Replace$(t, ".", "")
+        t = Replace$(t, ",", ".")
+    ElseIf nDot = 1 And nCom = 0 Then
+        p = Split(t, ".")
+        If UBound(p) = 1 And Len(p(0)) <= 2 Then
+            On Error Resume Next
+            d = CDbl(p(0) & Application.International(xlDecimalSeparator) & p(1))
+            On Error GoTo 0
+            If CtEnRango(d) Then ParseCtDesdeTexto = d: Exit Function
+        End If
+    ElseIf nDot > 1 And nCom = 0 Then
+        t = Replace$(t, ".", "")
+    End If
+    On Error Resume Next
+    d = CDbl(Val(t))
+    On Error GoTo 0
+    If CtEnRango(d) Then ParseCtDesdeTexto = d
+End Function
+
+Private Function ParseSdNum(v As Variant) As Variant
+    Dim d As Double
+    ParseSdNum = Empty
+    If IsEmpty(v) Or v = "" Then Exit Function
+    If IsNumeric(v) Then
+        d = CDbl(v)
+        If d >= 0# And d <= 5# Then ParseSdNum = d: Exit Function
+    End If
+    d = ParseCtDesdeTexto(Trim$(CStr(v)))
+    If d >= 0# And d <= 5# Then ParseSdNum = d
+End Function
+
 Private Sub AnadirCtValor(idx As Long, vCt As Variant, m As Variant, s As Variant)
+    Dim ctv As Variant, mv As Variant, sv As Variant
     If idx < 1 Or idx > G_N Then Exit Sub
     G_nDup(idx) = G_nDup(idx) + 1
-    If EsCtIndeterminado(vCt) Then
+    ctv = ParseCtNum(vCt)
+    If IsEmpty(ctv) Then
         G_nUndet(idx) = G_nUndet(idx) + 1
         If G_nDup(idx) = 1 Then G_Ct1Txt(idx) = "Indeterminado"
         If G_nDup(idx) = 2 Then G_Ct2Txt(idx) = "Indeterminado"
-    ElseIf IsNumeric(vCt) Then
+    Else
         G_nValidCt(idx) = G_nValidCt(idx) + 1
         If G_nDup(idx) = 1 Then
-            G_Ct1(idx) = CDbl(vCt)
-            G_Ct1Txt(idx) = Trim$(CStr(vCt))
+            G_Ct1(idx) = CDbl(ctv)
+            G_Ct1Txt(idx) = ""
         ElseIf G_nDup(idx) = 2 Then
-            G_Ct2(idx) = CDbl(vCt)
-            G_Ct2Txt(idx) = Trim$(CStr(vCt))
+            G_Ct2(idx) = CDbl(ctv)
+            G_Ct2Txt(idx) = ""
         End If
     End If
-    If IsNumeric(m) And Not EsCtIndeterminado(m) Then
-        G_CtMean(idx) = CDbl(m)
+    mv = ParseCtNum(m)
+    If Not IsEmpty(mv) Then
+        G_CtMean(idx) = CDbl(mv)
         G_HasMean(idx) = True
     End If
-    If IsNumeric(s) Then G_CtSd(idx) = CDbl(s)
+    sv = ParseSdNum(s)
+    If Not IsEmpty(sv) Then G_CtSd(idx) = CDbl(sv)
 End Sub
 
 Private Sub FinalizarEstadoCt(idx As Long)
@@ -372,8 +439,11 @@ Private Function MediaIdx(idx As Long) As Double
     If G_nValidCt(idx) >= 2 Then
         MediaIdx = (G_Ct1(idx) + G_Ct2(idx)) / 2#
     ElseIf G_nValidCt(idx) = 1 Then
-        MediaIdx = G_Ct1(idx)
-        If G_Ct2Txt(idx) <> "" And G_nValidCt(idx) = 1 And G_Ct1Txt(idx) = "" Then MediaIdx = G_Ct2(idx)
+        If G_Ct1Txt(idx) = "" Then
+            MediaIdx = G_Ct1(idx)
+        Else
+            MediaIdx = G_Ct2(idx)
+        End If
     Else
         MediaIdx = 0#
     End If
@@ -594,11 +664,16 @@ Private Sub OrdenarMuestras(orden As Collection)
     Next i
 End Sub
 
-Private Function ColLetra(c As Long) As String
-    ColLetra = Split(Cells(1, c).Address(True, False), "$")(0)
-End Function
+Private Sub EscribirCeldaCt(ws As Worksheet, r As Long, c As Long, txt As String, val As Double, tieneVal As Boolean)
+    If txt = "Indeterminado" Then
+        ws.Cells(r, c).Value = "Indeterminado"
+    ElseIf tieneVal Then
+        ws.Cells(r, c).Value = val
+        ws.Cells(r, c).NumberFormat = "0.000000"
+    End If
+End Sub
 
-'--- Tabla plana leida de RAW (valores); base para formulas en Calculos ---
+'--- Tabla plana leida de RAW: numeros reales (no texto con miles mal parseados) ---
 Private Sub EscribirDatos(ws As Worksheet)
     Dim i As Long, r As Long
     ws.Cells(1, 1).Value = "Muestra"
@@ -613,37 +688,43 @@ Private Sub EscribirDatos(ws As Worksheet)
     For i = 1 To G_N
         ws.Cells(r, 1).Value = G_Sample(i)
         ws.Cells(r, 2).Value = G_Target(i)
-        If G_Ct1Txt(i) <> "" Then
-            ws.Cells(r, 3).Value = G_Ct1Txt(i)
-        ElseIf G_nValidCt(i) >= 1 Then
-            ws.Cells(r, 3).Value = G_Ct1(i)
-        End If
-        If G_Ct2Txt(i) <> "" Then
-            ws.Cells(r, 4).Value = G_Ct2Txt(i)
-        ElseIf G_nDup(i) >= 2 And G_nValidCt(i) >= 2 Then
-            ws.Cells(r, 4).Value = G_Ct2(i)
+        Call EscribirCeldaCt(ws, r, 3, G_Ct1Txt(i), G_Ct1(i), (G_Ct1Txt(i) = "" And G_nValidCt(i) >= 1))
+        If G_nDup(i) >= 2 Then
+            Call EscribirCeldaCt(ws, r, 4, G_Ct2Txt(i), G_Ct2(i), _
+                (G_Ct2Txt(i) = "" And (G_nValidCt(i) >= 2 Or (G_nValidCt(i) = 1 And G_Ct1Txt(i) = "Indeterminado"))))
         End If
         If EsIndetIdx(i) Then
             ws.Cells(r, 5).Value = "Indeterminado"
             ws.Cells(r, 7).Value = 1
         Else
             ws.Cells(r, 5).Value = MediaIdx(i)
+            ws.Cells(r, 5).NumberFormat = "0.000000"
             ws.Cells(r, 7).Value = 0
         End If
-        ws.Cells(r, 6).Value = G_CtSd(i)
+        If G_CtSd(i) > 0# Or Not EsIndetIdx(i) Then
+            ws.Cells(r, 6).Value = G_CtSd(i)
+            ws.Cells(r, 6).NumberFormat = "0.000000"
+        End If
         r = r + 1
     Next i
-    ws.Columns("A:G").AutoFit
+    ws.Columns("A:G").ColumnWidth = 14
+    ws.Columns("C:F").ColumnWidth = 12
 End Sub
 
-'--- Una fila por muestra: Ct y dCt con formulas que leen Datos ---
+'--- Una fila por muestra: Ct numericos + formulas dCt (=B-C) que funcionan en Excel ES ---
 Private Sub EscribirCalculos(ws As Worksheet, orden As Collection, goi As String)
     Dim n As Long, i As Long, r As Long
-    Dim fCt As String, fDCt As String
+    Dim sample As String
+    Dim ixG As Long, ixP As Long, ixS As Long
+    Dim ctG As Variant, ctP As Variant, ctS As Variant
+    Dim dP() As Double, dS() As Double
+    Dim avgP As Double, avgS As Double
 
     Call OrdenarMuestras(orden)
     n = orden.Count
     If n = 0 Then Exit Sub
+    ReDim dP(1 To n)
+    ReDim dS(1 To n)
 
     ws.Cells(1, 1).Value = "Muestra"
     ws.Cells(1, 2).Value = "Ct GOI"
@@ -651,28 +732,57 @@ Private Sub EscribirCalculos(ws As Worksheet, orden As Collection, goi As String
     ws.Cells(1, 4).Value = "Ct SYP"
     ws.Cells(1, 5).Value = "dCt PPIA"
     ws.Cells(1, 6).Value = "dCt SYP"
-    ws.Cells(1, 7).Value = "Gen interes"
     ws.Cells(1, 8).Value = "Prom dCt (C) PPIA"
     ws.Cells(1, 9).Value = "Prom dCt (C) SYP"
     ws.Rows(1).Font.Bold = True
-    ws.Cells(1, 7).Value = goi
-
-    fCt = "=IF(COUNTIFS(" & SH_DATOS & "!$A:$A,$A@," & SH_DATOS & "!$B:$B,GEN@," & SH_DATOS & "!$G:$G,1)>0,""Indeterminado"",IFERROR(SUMIFS(" & SH_DATOS & "!$E:$E," & SH_DATOS & "!$A:$A,$A@," & SH_DATOS & "!$B:$B,GEN@),""""))"
-    fDCt = "=IF(OR(B@=""Indeterminado"",C@=""Indeterminado"",NOT(ISNUMBER(B@)),NOT(ISNUMBER(C@))),""Indeterminado"",B@-C@)"
-
-    ws.Cells(2, 8).Formula = "=IFERROR(AVERAGEIFS($E:$E,$A:$A,""C*"",$E:$E,""<>Indeterminado""),"""")"
-    ws.Cells(2, 9).Formula = "=IFERROR(AVERAGEIFS($F:$F,$A:$A,""C*"",$F:$F,""<>Indeterminado""),"""")"
+    ws.Range("G1").Value = goi
+    ws.Range("G1").Font.Italic = True
 
     For i = 1 To n
+        sample = orden(i)
+        ixG = BuscarIdx(sample, goi)
+        ixP = BuscarIdx(sample, HK_PPIA)
+        ixS = BuscarIdx(sample, HK_SYP)
         r = i + 2
-        ws.Cells(r, 1).Value = orden(i)
-        ws.Cells(r, 2).Formula = Replace$(Replace$(fCt, "@", CStr(r)), "GEN@", "$G$1")
-        ws.Cells(r, 3).Formula = Replace$(Replace$(fCt, "@", CStr(r)), "GEN@", """" & HK_PPIA & """")
-        ws.Cells(r, 4).Formula = Replace$(Replace$(fCt, "@", CStr(r)), "GEN@", """" & HK_SYP & """")
-        ws.Cells(r, 5).Formula = Replace$(Replace$(Replace$(fDCt, "@", CStr(r)), "B@", "B" & r), "C@", "C" & r)
-        ws.Cells(r, 6).Formula = "=IF(OR(B" & r & "=""Indeterminado"",D" & r & "=""Indeterminado"",NOT(ISNUMBER(B" & r & ")),NOT(ISNUMBER(D" & r & "))),""Indeterminado"",B" & r & "-D" & r & ")"
+        ws.Cells(r, 1).Value = sample
+        If ixG > 0 And Not EsIndetIdx(ixG) Then
+            ctG = MediaIdx(ixG)
+            ws.Cells(r, 2).Value = ctG
+            ws.Cells(r, 2).NumberFormat = "0.000000"
+        Else
+            ws.Cells(r, 2).Value = "Indeterminado"
+        End If
+        If ixP > 0 And Not EsIndetIdx(ixP) Then
+            ctP = MediaIdx(ixP)
+            ws.Cells(r, 3).Value = ctP
+            ws.Cells(r, 3).NumberFormat = "0.000000"
+        Else
+            ws.Cells(r, 3).Value = "Indeterminado"
+        End If
+        If ixS > 0 And Not EsIndetIdx(ixS) Then
+            ctS = MediaIdx(ixS)
+            ws.Cells(r, 4).Value = ctS
+            ws.Cells(r, 4).NumberFormat = "0.000000"
+        Else
+            ws.Cells(r, 4).Value = "Indeterminado"
+        End If
+        ws.Cells(r, 5).Formula = "=IF(OR(B" & r & "=""Indeterminado"",C" & r & "=""Indeterminado""),""Indeterminado"",B" & r & "-C" & r & ")"
+        ws.Cells(r, 6).Formula = "=IF(OR(B" & r & "=""Indeterminado"",D" & r & "=""Indeterminado""),""Indeterminado"",B" & r & "-D" & r & ")"
+        If ixG > 0 And ixP > 0 And ixS > 0 Then
+            If Not EsIndetIdx(ixG) And Not EsIndetIdx(ixP) And Not EsIndetIdx(ixS) Then
+                dP(i) = CDbl(ctG) - CDbl(ctP)
+                dS(i) = CDbl(ctG) - CDbl(ctS)
+            End If
+        End If
     Next i
-    ws.Columns("A:I").AutoFit
+
+    avgP = PromedioC(dP, n, orden, goi, True)
+    avgS = PromedioC(dS, n, orden, goi, False)
+    ws.Cells(2, 8).Value = avgP
+    ws.Cells(2, 9).Value = avgS
+    ws.Cells(2, 8).NumberFormat = "0.000000"
+    ws.Cells(2, 9).NumberFormat = "0.000000"
+    ws.Columns("A:I").ColumnWidth = 14
 End Sub
 
 Private Sub EscribirTodo(ws As Worksheet, wsG As Worksheet, orden As Collection, goi As String)
@@ -715,7 +825,7 @@ Private Sub EscribirTodo(ws As Worksheet, wsG As Worksheet, orden As Collection,
 
     avgP = PromedioC(dP, n, orden, goi, True)
     avgS = PromedioC(dS, n, orden, goi, False)
-    Call EscribirFilaPromedios(ws)
+    Call EscribirFilaPromedios(ws, avgP, avgS)
     tit = goi
     If Len(tit) > 0 Then If Right$(tit, 1) = "r" Or Right$(tit, 1) = "R" Then tit = Left$(tit, Len(tit) - 1)
 
@@ -725,9 +835,9 @@ Private Sub EscribirTodo(ws As Worksheet, wsG As Worksheet, orden As Collection,
         ixG = BuscarIdx(sample, goi)
         If ixG = 0 Then GoTo SigO
         If okCalc(i) Then
-            Call FilaCalc(ws, rowOut, 1, sample, goi, ixG, i + 2, True, _
+            Call FilaCalc(ws, rowOut, 1, sample, goi, ixG, dP(i), avgP, True, _
                 (2 ^ (-(dP(i) - avgP)) > FC_EXTREMO Or 2 ^ (-(dP(i) - avgP)) < 1# / FC_EXTREMO))
-            Call FilaCalc(ws, rowOut, 17, sample, goi, ixG, i + 2, False, _
+            Call FilaCalc(ws, rowOut, 17, sample, goi, ixG, dS(i), avgS, False, _
                 (2 ^ (-(dS(i) - avgS)) > FC_EXTREMO Or 2 ^ (-(dS(i) - avgS)) < 1# / FC_EXTREMO))
             If Left$(sample, 1) = "C" Then
                 cS.Add sample: cP.Add 2 ^ (-(dP(i) - avgP)): cY.Add 2 ^ (-(dS(i) - avgS))
@@ -779,10 +889,12 @@ Private Sub Cabeceras(ws As Worksheet, goi As String)
     On Error GoTo 0
 End Sub
 
-Private Sub EscribirFilaPromedios(ws As Worksheet)
+Private Sub EscribirFilaPromedios(ws As Worksheet, avgP As Double, avgS As Double)
     ws.Cells(2, 1).Value = "PROMEDIO controles (C)"
-    ws.Cells(2, 6).Formula = "=" & SH_CALC & "!$H$2"
-    ws.Cells(2, 22).Formula = "=" & SH_CALC & "!$I$2"
+    ws.Cells(2, 6).Value = avgP
+    ws.Cells(2, 22).Value = avgS
+    ws.Cells(2, 6).NumberFormat = "0.000000"
+    ws.Cells(2, 22).NumberFormat = "0.000000"
     ws.Cells(2, 5).Value = "(fijo)"
     ws.Cells(2, 21).Value = "(fijo)"
 End Sub
@@ -798,29 +910,28 @@ Private Sub MarcarCelda(c As Range, rojo As Boolean, naranja As Boolean)
 End Sub
 
 Private Sub EscribirCtCeldas(ws As Worksheet, r As Long, sc As Long, ix As Long)
-    If G_Ct1Txt(ix) <> "" Then
-        ws.Cells(r, sc + 2).Value = G_Ct1Txt(ix)
-    ElseIf G_nValidCt(ix) >= 1 Then
-        ws.Cells(r, sc + 2).Value = G_Ct1(ix)
+    Call EscribirCeldaCt(ws, r, sc + 2, G_Ct1Txt(ix), G_Ct1(ix), (G_Ct1Txt(ix) = "" And G_nValidCt(ix) >= 1))
+    If G_nDup(ix) >= 2 Then
+        Call EscribirCeldaCt(ws, r + 1, sc + 2, G_Ct2Txt(ix), G_Ct2(ix), (G_Ct2Txt(ix) = "" And G_nValidCt(ix) >= 1))
+        If G_Ct2Txt(ix) = "" And G_nValidCt(ix) = 1 And G_Ct1Txt(ix) = "Indeterminado" Then
+            Call EscribirCeldaCt(ws, r + 1, sc + 2, "", G_Ct2(ix), True)
+        End If
     End If
-    If G_Ct2Txt(ix) <> "" Then
-        ws.Cells(r + 1, sc + 2).Value = G_Ct2Txt(ix)
-    ElseIf G_nDup(ix) >= 2 And G_nValidCt(ix) >= 2 Then
-        ws.Cells(r + 1, sc + 2).Value = G_Ct2(ix)
-    End If
+    ws.Columns(sc + 2).ColumnWidth = 12
     If EsIndetIdx(ix) Then
         ws.Cells(r, sc + 3).Value = "Indeterminado"
     Else
         ws.Cells(r, sc + 3).Value = MediaIdx(ix)
+        ws.Cells(r, sc + 3).NumberFormat = "0.000000"
     End If
     ws.Cells(r, sc + 4).Value = G_CtSd(ix)
+    ws.Cells(r, sc + 4).NumberFormat = "0.000000"
 End Sub
 
 Private Sub FilaCalc(ws As Worksheet, r As Long, sc As Long, sample As String, tgt As String, ix As Long, _
-    calcRow As Long, bloquePPIA As Boolean, flagFcExtremo As Boolean)
-    Dim cDCt As Long, cProm As Long, cDdCt As Long, cFc As Long
+    dCt As Double, avgC As Double, conCalcs As Boolean, flagFcExtremo As Boolean)
+    Dim ddCt As Double, fc As Double
     Dim rojo As Boolean, naranja As Boolean
-    Dim sDCt As String, sProm As String, sDdCt As String, sFc As String
 
     ws.Cells(r, sc).Value = sample
     ws.Cells(r, sc + 1).Value = tgt
@@ -828,29 +939,19 @@ Private Sub FilaCalc(ws As Worksheet, r As Long, sc As Long, sample As String, t
     rojo = (G_CtSd(ix) > SD_UMBRAL)
     naranja = UnReplicaIdx(ix)
     Call MarcarCelda(ws.Cells(r, sc), rojo Or EsIndetIdx(ix), naranja)
-
-    cDCt = sc + 5
-    cProm = sc + 6
-    cDdCt = sc + 7
-    cFc = sc + 8
-    If bloquePPIA Then
-        ws.Cells(r, cDCt).Formula = "=" & SH_CALC & "!E" & calcRow
-        ws.Cells(r, cProm).Formula = "=" & SH_CALC & "!$H$2"
-        sDCt = ColLetra(cDCt) & CStr(r)
-        sProm = ColLetra(cProm) & "$2"
-    Else
-        ws.Cells(r, cDCt).Formula = "=" & SH_CALC & "!F" & calcRow
-        ws.Cells(r, cProm).Formula = "=" & SH_CALC & "!$I$2"
-        sDCt = ColLetra(cDCt) & CStr(r)
-        sProm = ColLetra(cProm) & "$2"
+    If conCalcs Then
+        ddCt = dCt - avgC
+        fc = 2 ^ (-ddCt)
+        ws.Cells(r, sc + 5).Value = dCt
+        ws.Cells(r, sc + 5).NumberFormat = "0.000000"
+        ws.Cells(r, sc + 7).Value = ddCt
+        ws.Cells(r, sc + 7).NumberFormat = "0.000000"
+        ws.Cells(r, sc + 8).Value = fc
+        ws.Cells(r, sc + 8).NumberFormat = "0.000000"
+        If flagFcExtremo Then rojo = True
+        Call MarcarCelda(ws.Cells(r, sc + 8), rojo, naranja)
+        Call MarcarCelda(ws.Cells(r, sc + 5), rojo, naranja)
     End If
-    sDdCt = ColLetra(cDdCt) & CStr(r)
-    sFc = ColLetra(cFc) & CStr(r)
-    ws.Cells(r, cDdCt).Formula = "=IF(" & sDCt & "=""Indeterminado"",""Indeterminado""," & sDCt & "-" & sProm & ")"
-    ws.Cells(r, cFc).Formula = "=IF(" & sDdCt & "=""Indeterminado"",""Indeterminado"",2^(-" & sDdCt & "))"
-    If flagFcExtremo Then rojo = True
-    Call MarcarCelda(ws.Cells(r, cFc), rojo, naranja)
-    Call MarcarCelda(ws.Cells(r, cDCt), rojo, naranja)
 End Sub
 
 Private Sub FilaIndeterminado(ws As Worksheet, r As Long, sc As Long, sample As String, tgt As String, ix As Long)

@@ -7,7 +7,7 @@ Repositorio: https://github.com/carlosvibecoding/BASURA
 | Archivo | Enlace directo |
 |---------|----------------|
 | **Plantilla Excel** | https://github.com/carlosvibecoding/BASURA/raw/main/qPCR_plantilla.xlsx |
-| **Macro VBA v3.4** | https://github.com/carlosvibecoding/BASURA/raw/main/qpcr/Modulo_qPCR.bas |
+| **Macro VBA v3.5** | https://github.com/carlosvibecoding/BASURA/raw/main/qpcr/Modulo_qPCR.bas |
 | **Todo el proyecto (ZIP)** | https://github.com/carlosvibecoding/BASURA/archive/refs/heads/main.zip |
 | **Procesar sin macro** | https://github.com/carlosvibecoding/BASURA/raw/main/qpcr/procesar_placa.py |
 
@@ -15,7 +15,7 @@ Repositorio: https://github.com/carlosvibecoding/BASURA
 
 Al ejecutar **ProcesarPlaca**, si funciona debe decir:
 
-`Analisis completado: RGS12 (macro 3.4)`
+`Analisis completado: RGS12 (macro 3.5)`
 
 Tras importar la macro, abre el libro de nuevo (o ejecuta **InstalarBotones**) para ver los botones en RAW.
 
@@ -47,11 +47,11 @@ En **RAW**, celda **A1**, pegar el export **completo** del StepOne:
 
 Varias placas: pegar una debajo de otra (o usar **Añadir placa abajo**).
 
-## Hojas intermedias (macro 3.4)
+## Hojas intermedias (macro 3.5)
 
-- **Datos** — cada fila es una muestra × gen (Ct leídos del RAW).
-- **Calculos** — fórmulas Excel: Ct GOI/PPIA/SYP, ΔCt, promedio de controles (C).
-- **Resultados** — enlaza a Calculos (puede revisar o recalcular al cambiar Datos).
+- **Datos** — muestra × gen con Ct **numéricos** (parseo correcto con coma/punto en Excel español).
+- **Calculos** — Ct por muestra; ΔCt con fórmula `=B3-C3` (sobre números, no SUMIFS).
+- **Resultados** — valores calculados (ΔCt, ΔΔCt, 2^(-ΔΔCt)); no depende de fórmulas rotas.
 
 ## Resultados
 

@@ -24,6 +24,37 @@ def is_ct_indeterminate(ct: object) -> bool:
     return bool(INDET_RE.search(str(ct)))
 
 
+def parse_ct_value(ct: object) -> Optional[float]:
+    """Parsea Ct (coma/punto, locale ES) a float en rango plausible."""
+    if is_ct_indeterminate(ct):
+        return None
+    if isinstance(ct, (int, float)):
+        v = float(ct)
+        return v if 5 <= v <= 50 else None
+    s = str(ct).strip().replace("\u00a0", "").replace(" ", "")
+    if not s:
+        return None
+    n_dot = s.count(".")
+    n_com = s.count(",")
+    if n_com == 1 and n_dot == 0:
+        s = s.replace(",", ".")
+    elif n_com == 1 and n_dot >= 1:
+        s = s.replace(".", "").replace(",", ".")
+    elif n_dot == 1 and n_com == 0:
+        left, right = s.split(".", 1)
+        if len(left) <= 2:
+            s = f"{left}.{right}"
+        else:
+            s = s.replace(".", "")
+    elif n_dot > 1:
+        s = s.replace(".", "")
+    try:
+        v = float(s)
+    except ValueError:
+        return None
+    return v if 5 <= v <= 50 else None
+
+
 def sample_sort_key(sample: str) -> tuple:
     s = sample.upper()
     prefix = 0 if s.startswith("C") else 1
@@ -40,20 +71,18 @@ class WellReading:
 
     def add_row(self, ct: object, ct_mean: object, ct_sd: object) -> None:
         self.ct_raw.append("" if ct is None else str(ct).strip())
-        if not is_ct_indeterminate(ct):
-            try:
-                self.ct_values.append(float(ct))
-            except (TypeError, ValueError):
-                pass
-        if self.ct_mean is None and ct_mean != "" and ct_mean is not None:
-            try:
-                if not is_ct_indeterminate(ct_mean):
-                    self.ct_mean = float(ct_mean)
-            except (TypeError, ValueError):
-                pass
+        parsed = parse_ct_value(ct)
+        if parsed is not None:
+            self.ct_values.append(parsed)
+        if self.ct_mean is None:
+            m = parse_ct_value(ct_mean)
+            if m is not None:
+                self.ct_mean = m
         if self.ct_sd is None and ct_sd != "" and ct_sd is not None:
             try:
-                self.ct_sd = float(ct_sd)
+                sd = float(str(ct_sd).replace(",", "."))
+                if 0 <= sd <= 5:
+                    self.ct_sd = sd
             except (TypeError, ValueError):
                 pass
 
