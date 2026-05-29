@@ -1,10 +1,12 @@
 Attribute VB_Name = "Modulo_qPCR"
 ' qPCR - Pegar export StepOne COMPLETO en RAW (celda A1). Macro: ProcesarPlaca
-' Version 3.3 - Indeterminado, 1 replica marcada, orden GLOBAL
+' Version 3.4 - Hojas Datos/Calculos con formulas; fix Call OrdenarMuestras
 
 Option Explicit
 
-Private Const MACRO_VER As String = "3.3"
+Private Const MACRO_VER As String = "3.4"
+Private Const SH_DATOS As String = "Datos"
+Private Const SH_CALC As String = "Calculos"
 Private Const HK_PPIA As String = "PPIA"
 Private Const HK_SYP As String = "SYP"
 Private Const SD_UMBRAL As Double = 0.3
@@ -29,6 +31,8 @@ Private G_N As Long
 
 Public Sub ProcesarPlaca()
     Dim wsRaw As Worksheet
+    Dim wsDat As Worksheet
+    Dim wsCalc As Worksheet
     Dim wsRes As Worksheet
     Dim wsGlob As Worksheet
     Dim headerRow As Long
@@ -44,10 +48,16 @@ Public Sub ProcesarPlaca()
     Application.Calculation = xlCalculationManual
 
     Set wsRaw = ThisWorkbook.Worksheets("RAW")
+    AsegurarHoja SH_DATOS
+    AsegurarHoja SH_CALC
     AsegurarHoja "Resultados"
     AsegurarHoja "GLOBAL"
+    Set wsDat = ThisWorkbook.Worksheets(SH_DATOS)
+    Set wsCalc = ThisWorkbook.Worksheets(SH_CALC)
     Set wsRes = ThisWorkbook.Worksheets("Resultados")
     Set wsGlob = ThisWorkbook.Worksheets("GLOBAL")
+    wsDat.Cells.Clear
+    wsCalc.Cells.Clear
     wsRes.Cells.Clear
     wsGlob.Cells.Clear
 
@@ -62,6 +72,8 @@ Public Sub ProcesarPlaca()
         Err.Raise 5, , "Faltan PPIA o SYP. Pegue el export COMPLETO del termociclador (los 3 bloques de genes)."
     End If
 
+    Call EscribirDatos(wsDat)
+    Call EscribirCalculos(wsCalc, orden, goi)
     Call EscribirTodo(wsRes, wsGlob, orden, goi)
     Call InstalarBotones
 
@@ -110,10 +122,12 @@ End Sub
 '--- Borra RAW, Resultados y GLOBAL ---
 Public Sub LimpiarDatos()
     Dim r As VbMsgBoxResult
-    r = MsgBox("Borrar todos los datos de RAW, Resultados y GLOBAL?", vbYesNo + vbQuestion, "qPCR")
+    r = MsgBox("Borrar todos los datos de RAW, Datos, Calculos, Resultados y GLOBAL?", vbYesNo + vbQuestion, "qPCR")
     If r <> vbYes Then Exit Sub
     On Error Resume Next
     ThisWorkbook.Worksheets("RAW").Cells.Clear
+    ThisWorkbook.Worksheets(SH_DATOS).Cells.Clear
+    ThisWorkbook.Worksheets(SH_CALC).Cells.Clear
     ThisWorkbook.Worksheets("Resultados").Cells.Clear
     ThisWorkbook.Worksheets("GLOBAL").Cells.Clear
     On Error GoTo 0
@@ -580,6 +594,87 @@ Private Sub OrdenarMuestras(orden As Collection)
     Next i
 End Sub
 
+Private Function ColLetra(c As Long) As String
+    ColLetra = Split(Cells(1, c).Address(True, False), "$")(0)
+End Function
+
+'--- Tabla plana leida de RAW (valores); base para formulas en Calculos ---
+Private Sub EscribirDatos(ws As Worksheet)
+    Dim i As Long, r As Long
+    ws.Cells(1, 1).Value = "Muestra"
+    ws.Cells(1, 2).Value = "Gen"
+    ws.Cells(1, 3).Value = "Ct 1"
+    ws.Cells(1, 4).Value = "Ct 2"
+    ws.Cells(1, 5).Value = "Ct Mean"
+    ws.Cells(1, 6).Value = "Ct SD"
+    ws.Cells(1, 7).Value = "Indet"
+    ws.Rows(1).Font.Bold = True
+    r = 2
+    For i = 1 To G_N
+        ws.Cells(r, 1).Value = G_Sample(i)
+        ws.Cells(r, 2).Value = G_Target(i)
+        If G_Ct1Txt(i) <> "" Then
+            ws.Cells(r, 3).Value = G_Ct1Txt(i)
+        ElseIf G_nValidCt(i) >= 1 Then
+            ws.Cells(r, 3).Value = G_Ct1(i)
+        End If
+        If G_Ct2Txt(i) <> "" Then
+            ws.Cells(r, 4).Value = G_Ct2Txt(i)
+        ElseIf G_nDup(i) >= 2 And G_nValidCt(i) >= 2 Then
+            ws.Cells(r, 4).Value = G_Ct2(i)
+        End If
+        If EsIndetIdx(i) Then
+            ws.Cells(r, 5).Value = "Indeterminado"
+            ws.Cells(r, 7).Value = 1
+        Else
+            ws.Cells(r, 5).Value = MediaIdx(i)
+            ws.Cells(r, 7).Value = 0
+        End If
+        ws.Cells(r, 6).Value = G_CtSd(i)
+        r = r + 1
+    Next i
+    ws.Columns("A:G").AutoFit
+End Sub
+
+'--- Una fila por muestra: Ct y dCt con formulas que leen Datos ---
+Private Sub EscribirCalculos(ws As Worksheet, orden As Collection, goi As String)
+    Dim n As Long, i As Long, r As Long
+    Dim fCt As String, fDCt As String
+
+    Call OrdenarMuestras(orden)
+    n = orden.Count
+    If n = 0 Then Exit Sub
+
+    ws.Cells(1, 1).Value = "Muestra"
+    ws.Cells(1, 2).Value = "Ct GOI"
+    ws.Cells(1, 3).Value = "Ct PPIA"
+    ws.Cells(1, 4).Value = "Ct SYP"
+    ws.Cells(1, 5).Value = "dCt PPIA"
+    ws.Cells(1, 6).Value = "dCt SYP"
+    ws.Cells(1, 7).Value = "Gen interes"
+    ws.Cells(1, 8).Value = "Prom dCt (C) PPIA"
+    ws.Cells(1, 9).Value = "Prom dCt (C) SYP"
+    ws.Rows(1).Font.Bold = True
+    ws.Cells(1, 7).Value = goi
+
+    fCt = "=IF(COUNTIFS(" & SH_DATOS & "!$A:$A,$A@," & SH_DATOS & "!$B:$B,GEN@," & SH_DATOS & "!$G:$G,1)>0,""Indeterminado"",IFERROR(SUMIFS(" & SH_DATOS & "!$E:$E," & SH_DATOS & "!$A:$A,$A@," & SH_DATOS & "!$B:$B,GEN@),""""))"
+    fDCt = "=IF(OR(B@=""Indeterminado"",C@=""Indeterminado"",NOT(ISNUMBER(B@)),NOT(ISNUMBER(C@))),""Indeterminado"",B@-C@)"
+
+    ws.Cells(2, 8).Formula = "=IFERROR(AVERAGEIFS($E:$E,$A:$A,""C*"",$E:$E,""<>Indeterminado""),"""")"
+    ws.Cells(2, 9).Formula = "=IFERROR(AVERAGEIFS($F:$F,$A:$A,""C*"",$F:$F,""<>Indeterminado""),"""")"
+
+    For i = 1 To n
+        r = i + 2
+        ws.Cells(r, 1).Value = orden(i)
+        ws.Cells(r, 2).Formula = Replace$(Replace$(fCt, "@", CStr(r)), "GEN@", "$G$1")
+        ws.Cells(r, 3).Formula = Replace$(Replace$(fCt, "@", CStr(r)), "GEN@", """" & HK_PPIA & """")
+        ws.Cells(r, 4).Formula = Replace$(Replace$(fCt, "@", CStr(r)), "GEN@", """" & HK_SYP & """")
+        ws.Cells(r, 5).Formula = Replace$(Replace$(Replace$(fDCt, "@", CStr(r)), "B@", "B" & r), "C@", "C" & r)
+        ws.Cells(r, 6).Formula = "=IF(OR(B" & r & "=""Indeterminado"",D" & r & "=""Indeterminado"",NOT(ISNUMBER(B" & r & ")),NOT(ISNUMBER(D" & r & "))),""Indeterminado"",B" & r & "-D" & r & ")"
+    Next i
+    ws.Columns("A:I").AutoFit
+End Sub
+
 Private Sub EscribirTodo(ws As Worksheet, wsG As Worksheet, orden As Collection, goi As String)
     Dim n As Long, i As Long, rowOut As Long
     Dim sample As String
@@ -590,7 +685,7 @@ Private Sub EscribirTodo(ws As Worksheet, wsG As Worksheet, orden As Collection,
     Dim cS As Collection, cP As Collection, cY As Collection
     Dim sS As Collection, sP As Collection, sY As Collection
 
-    Call OrdenarMuestras orden
+    Call OrdenarMuestras(orden)
 
     n = orden.Count
     If n = 0 Then Exit Sub
@@ -620,7 +715,7 @@ Private Sub EscribirTodo(ws As Worksheet, wsG As Worksheet, orden As Collection,
 
     avgP = PromedioC(dP, n, orden, goi, True)
     avgS = PromedioC(dS, n, orden, goi, False)
-    Call EscribirFilaPromedios(ws, avgP, avgS)
+    Call EscribirFilaPromedios(ws)
     tit = goi
     If Len(tit) > 0 Then If Right$(tit, 1) = "r" Or Right$(tit, 1) = "R" Then tit = Left$(tit, Len(tit) - 1)
 
@@ -630,8 +725,10 @@ Private Sub EscribirTodo(ws As Worksheet, wsG As Worksheet, orden As Collection,
         ixG = BuscarIdx(sample, goi)
         If ixG = 0 Then GoTo SigO
         If okCalc(i) Then
-            Call FilaCalc(ws, rowOut, 1, sample, goi, ixG, dP(i), avgP, True)
-            Call FilaCalc(ws, rowOut, 17, sample, goi, ixG, dS(i), avgS, True)
+            Call FilaCalc(ws, rowOut, 1, sample, goi, ixG, i + 2, True, _
+                (2 ^ (-(dP(i) - avgP)) > FC_EXTREMO Or 2 ^ (-(dP(i) - avgP)) < 1# / FC_EXTREMO))
+            Call FilaCalc(ws, rowOut, 17, sample, goi, ixG, i + 2, False, _
+                (2 ^ (-(dS(i) - avgS)) > FC_EXTREMO Or 2 ^ (-(dS(i) - avgS)) < 1# / FC_EXTREMO))
             If Left$(sample, 1) = "C" Then
                 cS.Add sample: cP.Add 2 ^ (-(dP(i) - avgP)): cY.Add 2 ^ (-(dS(i) - avgS))
             ElseIf Left$(sample, 1) = "S" Then
@@ -682,10 +779,10 @@ Private Sub Cabeceras(ws As Worksheet, goi As String)
     On Error GoTo 0
 End Sub
 
-Private Sub EscribirFilaPromedios(ws As Worksheet, avgP As Double, avgS As Double)
+Private Sub EscribirFilaPromedios(ws As Worksheet)
     ws.Cells(2, 1).Value = "PROMEDIO controles (C)"
-    ws.Cells(2, 6).Value = avgP
-    ws.Cells(2, 22).Value = avgS
+    ws.Cells(2, 6).Formula = "=" & SH_CALC & "!$H$2"
+    ws.Cells(2, 22).Formula = "=" & SH_CALC & "!$I$2"
     ws.Cells(2, 5).Value = "(fijo)"
     ws.Cells(2, 21).Value = "(fijo)"
 End Sub
@@ -720,25 +817,40 @@ Private Sub EscribirCtCeldas(ws As Worksheet, r As Long, sc As Long, ix As Long)
 End Sub
 
 Private Sub FilaCalc(ws As Worksheet, r As Long, sc As Long, sample As String, tgt As String, ix As Long, _
-    dCt As Double, avgC As Double, conCalcs As Boolean)
-    Dim ddCt As Double, fc As Double
+    calcRow As Long, bloquePPIA As Boolean, flagFcExtremo As Boolean)
+    Dim cDCt As Long, cProm As Long, cDdCt As Long, cFc As Long
     Dim rojo As Boolean, naranja As Boolean
+    Dim sDCt As String, sProm As String, sDdCt As String, sFc As String
+
     ws.Cells(r, sc).Value = sample
     ws.Cells(r, sc + 1).Value = tgt
     Call EscribirCtCeldas(ws, r, sc, ix)
     rojo = (G_CtSd(ix) > SD_UMBRAL)
     naranja = UnReplicaIdx(ix)
     Call MarcarCelda(ws.Cells(r, sc), rojo Or EsIndetIdx(ix), naranja)
-    If conCalcs Then
-        ddCt = dCt - avgC
-        fc = 2 ^ (-ddCt)
-        ws.Cells(r, sc + 5).Value = dCt
-        ws.Cells(r, sc + 7).Value = ddCt
-        ws.Cells(r, sc + 8).Value = fc
-        If fc > FC_EXTREMO Or fc < 1# / FC_EXTREMO Then rojo = True
-        Call MarcarCelda(ws.Cells(r, sc + 8), rojo, naranja)
-        Call MarcarCelda(ws.Cells(r, sc + 5), rojo, naranja)
+
+    cDCt = sc + 5
+    cProm = sc + 6
+    cDdCt = sc + 7
+    cFc = sc + 8
+    If bloquePPIA Then
+        ws.Cells(r, cDCt).Formula = "=" & SH_CALC & "!E" & calcRow
+        ws.Cells(r, cProm).Formula = "=" & SH_CALC & "!$H$2"
+        sDCt = ColLetra(cDCt) & CStr(r)
+        sProm = ColLetra(cProm) & "$2"
+    Else
+        ws.Cells(r, cDCt).Formula = "=" & SH_CALC & "!F" & calcRow
+        ws.Cells(r, cProm).Formula = "=" & SH_CALC & "!$I$2"
+        sDCt = ColLetra(cDCt) & CStr(r)
+        sProm = ColLetra(cProm) & "$2"
     End If
+    sDdCt = ColLetra(cDdCt) & CStr(r)
+    sFc = ColLetra(cFc) & CStr(r)
+    ws.Cells(r, cDdCt).Formula = "=IF(" & sDCt & "=""Indeterminado"",""Indeterminado""," & sDCt & "-" & sProm & ")"
+    ws.Cells(r, cFc).Formula = "=IF(" & sDdCt & "=""Indeterminado"",""Indeterminado"",2^(-" & sDdCt & "))"
+    If flagFcExtremo Then rojo = True
+    Call MarcarCelda(ws.Cells(r, cFc), rojo, naranja)
+    Call MarcarCelda(ws.Cells(r, cDCt), rojo, naranja)
 End Sub
 
 Private Sub FilaIndeterminado(ws As Worksheet, r As Long, sc As Long, sample As String, tgt As String, ix As Long)

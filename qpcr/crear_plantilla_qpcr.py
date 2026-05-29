@@ -61,7 +61,9 @@ def write_instructions(ws) -> None:
         f"4. Las muestras con Ct SD > {SD_THRESHOLD} en el gen de interés se marcan en rojo (se incluyen en los cálculos).",
         "",
         "Hojas generadas:",
-        "  • Resultados — datos y cálculos (bloque PPIA a la izquierda, SYP a la derecha)",
+        "  • Datos — tabla leída del RAW (Ct por muestra y gen)",
+        "  • Calculos — ΔCt y promedio C con fórmulas Excel (auditable)",
+        "  • Resultados — presentación (fórmulas enlazadas a Calculos)",
         "  • GLOBAL — resumen por sujeto (controles | suicidas)",
         "",
         "Cálculos (por cada gen control PPIA y SYP):",
@@ -315,7 +317,40 @@ def build_workbook(demo_raw: Path | None = None) -> Workbook:
         wb.create_sheet("Resultados")
         wb.create_sheet("GLOBAL")
 
+    setup_datos_calc_sheets(wb)
     return wb
+
+
+def setup_datos_calc_sheets(wb) -> None:
+    """Cabeceras en hojas intermedias (la macro las rellena al procesar)."""
+    if "Datos" not in wb.sheetnames:
+        ws_d = wb.create_sheet("Datos")
+    else:
+        ws_d = wb["Datos"]
+    for c, h in enumerate(
+        ["Muestra", "Gen", "Ct 1", "Ct 2", "Ct Mean", "Ct SD", "Indet"], 1
+    ):
+        ws_d.cell(row=1, column=c, value=h).font = BOLD
+
+    if "Calculos" not in wb.sheetnames:
+        ws_c = wb.create_sheet("Calculos")
+    else:
+        ws_c = wb["Calculos"]
+    for c, h in enumerate(
+        [
+            "Muestra",
+            "Ct GOI",
+            "Ct PPIA",
+            "Ct SYP",
+            "dCt PPIA",
+            "dCt SYP",
+            "Gen interes",
+            "Prom dCt (C) PPIA",
+            "Prom dCt (C) SYP",
+        ],
+        1,
+    ):
+        ws_c.cell(row=1, column=c, value=h).font = BOLD
 
 
 def main() -> int:
