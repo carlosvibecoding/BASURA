@@ -1,0 +1,291 @@
+#!/usr/bin/env python3
+"""
+Genera la plantilla Excel para análisis qPCR y opcionalmente valida con un RAW de ejemplo.
+
+Uso:
+  python crear_plantilla_qpcr.py
+  python crear_plantilla_qpcr.py --demo "PLACA 2 RGS12 060526_data.xls"
+"""
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+import xlrd
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.datavalidation import DataValidation
+
+from processor import (
+    SD_THRESHOLD,
+    calculate_all,
+    goi_display_name,
+    parse_raw_rows,
+)
+
+ROOT = Path(__file__).resolve().parent.parent
+OUTPUT = ROOT / "qPCR_plantilla.xlsx"
+
+THIN = Side(style="thin", color="000000")
+BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
+HEADER_FILL_PPIA = PatternFill("solid", fgColor="D9E1F2")
+HEADER_FILL_SYP = PatternFill("solid", fgColor="E2EFDA")
+YELLOW_FILL = PatternFill("solid", fgColor="FFFF00")
+GREEN_FILL = PatternFill("solid", fgColor="92D050")
+RED_FONT = Font(color="FF0000")
+BOLD = Font(bold=True)
+
+
+def sheet_rows_from_xls(path: Path, sheet_name: str | None = None) -> list:
+    wb = xlrd.open_workbook(str(path))
+    sh = wb.sheet_by_index(0) if sheet_name is None else wb.sheet_by_name(sheet_name)
+    return [sh.row_values(r) for r in range(sh.nrows)]
+
+
+def write_instructions(ws) -> None:
+    ws.title = "Instrucciones"
+    ws.column_dimensions["A"].width = 95
+    lines = [
+        "PLANTILLA qPCR — ΔΔCt (PPIA y SYP)",
+        "",
+        "1. Pegue el export del termociclador (StepOne) en la hoja RAW, desde la celda A1.",
+        "   Puede pegar varias exportaciones una debajo de otra; al pulsar «Procesar» se analiza todo el bloque.",
+        "2. Importe la macro (solo la primera vez): Alt+F11 → Archivo → Importar archivo → qpcr/Modulo_qPCR.bas",
+        "3. En la hoja RAW, pulse el botón «Procesar placa» (o ejecute la macro ProcesarPlaca).",
+        "",
+        f"4. Las muestras con Ct SD > {SD_THRESHOLD} en el gen de interés se marcan en rojo (se incluyen en los cálculos).",
+        "",
+        "Hojas generadas:",
+        "  • Resultados — datos y cálculos (bloque PPIA a la izquierda, SYP a la derecha)",
+        "  • GLOBAL — resumen por sujeto (controles | suicidas)",
+        "",
+        "Cálculos (por cada gen control PPIA y SYP):",
+        "  Paso 1: ΔCt = Ct mean (gen problema) − Ct mean (control)",
+        "  Paso 2: Promedio del paso 1 solo en muestras C (C1, C12, …)",
+        "  Paso 3: ΔΔCt = ΔCt − promedio del paso 2 (fijo para todas las muestras)",
+        "  Paso 4: 2^(−ΔΔCt)",
+    ]
+    for i, line in enumerate(lines, 1):
+        cell = ws.cell(row=i, column=1, value=line)
+        if i == 1:
+            cell.font = Font(bold=True, size=14)
+
+
+def setup_raw_sheet(ws) -> None:
+    ws.title = "RAW"
+    ws["A1"] = "Pegue aquí el export del termociclador (Sample Name, Target Name, Ct, Ct Mean, Ct SD…)"
+    ws["A1"].font = Font(italic=True, color="666666")
+    ws.column_dimensions["A"].width = 14
+    for col in range(2, 15):
+        ws.column_dimensions[get_column_letter(col)].width = 12
+    # Nota para botón: se añade con xlsxwriter en build_xlsm_button helper o manualmente
+    ws["N1"] = "← Importe Modulo_qPCR.bas y asigne la macro ProcesarPlaca a un botón aquí"
+    ws["N1"].font = Font(size=9, color="0070C0")
+
+
+def write_results_headers(ws, goi_label: str) -> None:
+    blocks = [
+        (1, "PPIA", HEADER_FILL_PPIA),
+        (17, "SYP", HEADER_FILL_SYP),
+    ]
+    headers = [
+        "Sample Name",
+        "Target Name",
+        "Ct",
+        "Ct Mean",
+        "Ct SD",
+        "ΔCt",
+        "Prom. ΔCt (C)",
+        "ΔΔCt",
+        "2^(-ΔΔCt)",
+    ]
+    for start_col, ref_name, fill in blocks:
+        for offset, h in enumerate(headers):
+            c = start_col + offset
+            cell = ws.cell(row=1, column=c, value=h)
+            cell.font = BOLD
+            cell.fill = fill
+            cell.border = BORDER
+            cell.alignment = Alignment(horizontal="center")
+        title_cell = ws.cell(row=1, column=start_col, value=f"{goi_label} vs {ref_name}")
+    ws.freeze_panes = "A2"
+
+
+def write_sample_block(
+    ws,
+    row: int,
+    start_col: int,
+    sample: str,
+    target: str,
+    ct1,
+    ct2,
+    ct_mean: float,
+    ct_sd: float,
+    dct: float,
+    dct_mean_c: float,
+    ddct: float,
+    fc: float,
+    flag_red: bool,
+    write_calcs: bool,
+) -> int:
+    """Escribe 2 filas (duplicado). Devuelve la siguiente fila libre."""
+    font = RED_FONT if flag_red else Font()
+    r1, r2 = row, row + 1
+
+    def put(r, col, val, calc_col: bool = False):
+        if val is None or val == "":
+            return
+        cell = ws.cell(row=r, column=col, value=val)
+        cell.border = BORDER
+        if calc_col and flag_red:
+            cell.font = font
+        elif col <= start_col + 4:
+            cell.font = font
+
+    put(r1, start_col, sample)
+    put(r1, start_col + 1, target)
+    put(r1, start_col + 2, ct1)
+    put(r1, start_col + 3, ct_mean)
+    put(r1, start_col + 4, ct_sd)
+    if ct2 is not None:
+        put(r2, start_col + 2, ct2)
+
+    if write_calcs:
+        put(r1, start_col + 5, round(dct, 6), True)
+        put(r1, start_col + 6, round(dct_mean_c, 6), True)
+        put(r1, start_col + 7, round(ddct, 6), True)
+        put(r1, start_col + 8, round(fc, 6), True)
+
+    return row + 2
+
+
+def write_results_sheet(ws, calcs, goi: str, data) -> None:
+    ws.title = "Resultados"
+    goi_label = goi_display_name(goi)
+    write_results_headers(ws, goi_label)
+
+    row = 2
+    for item in calcs:
+        r1, r2 = row, row + 1
+        write_sample_block(
+            ws, r1, 1, item.sample, item.goi, item.ct1, item.ct2,
+            item.goi_mean, item.goi_sd, item.ppi_dct, item.ppi_dct_mean_c,
+            item.ppi_ddct, item.ppi_fc, item.flag_high_sd, True,
+        )
+        write_sample_block(
+            ws, r1, 17, item.sample, item.goi, item.ct1, item.ct2,
+            item.goi_mean, item.goi_sd, item.syp_dct, item.syp_dct_mean_c,
+            item.syp_ddct, item.syp_fc, item.flag_high_sd, True,
+        )
+        row += 2
+
+    # Genes control: PPIA (izq.) y SYP (der.) en la misma fila por muestra
+    for item in calcs:
+        ppi = data[item.sample].get("PPIA")
+        syp = data[item.sample].get("SYP")
+        if ppi:
+            cts = ppi.ct_values
+            write_sample_block(
+                ws, row, 1, item.sample, "PPIA",
+                cts[0] if cts else None, cts[1] if len(cts) > 1 else None,
+                _mean(ppi) or 0, ppi.ct_sd or 0, 0, 0, 0, 0, False, False,
+            )
+        if syp:
+            cts = syp.ct_values
+            write_sample_block(
+                ws, row, 17, item.sample, "SYP",
+                cts[0] if cts else None, cts[1] if len(cts) > 1 else None,
+                _mean(syp) or 0, syp.ct_sd or 0, 0, 0, 0, 0, False, False,
+            )
+        row += 2
+
+
+def _mean(reading) -> float | None:
+    if reading.ct_mean is not None:
+        return reading.ct_mean
+    if reading.ct_values:
+        return sum(reading.ct_values) / len(reading.ct_values)
+    return None
+
+
+def write_global_sheet(ws, calcs, goi: str) -> None:
+    ws.title = "GLOBAL"
+    goi_short = goi_display_name(goi)
+    controls = [c for c in calcs if c.sample.startswith("C")]
+    suicides = [c for c in calcs if c.sample.startswith("S")]
+
+    def write_table(start_col: int, title: str, title_fill, items):
+        ws.merge_cells(
+            start_row=1,
+            start_column=start_col,
+            end_row=1,
+            end_column=start_col + 3,
+        )
+        t = ws.cell(row=1, column=start_col, value=title)
+        t.font = BOLD
+        t.fill = title_fill
+        t.alignment = Alignment(horizontal="center")
+        for i, h in enumerate(["SUJETO", "PPIA", "SYP", "MEDIA"]):
+            c = ws.cell(row=2, column=start_col + i, value=h)
+            c.font = BOLD
+            c.border = BORDER
+            c.alignment = Alignment(horizontal="center")
+        for r_idx, item in enumerate(items, 3):
+            media = (item.ppi_fc + item.syp_fc) / 2
+            vals = [item.sample, item.ppi_fc, item.syp_fc, media]
+            for i, val in enumerate(vals):
+                cell = ws.cell(row=r_idx, column=start_col + i, value=round(val, 6) if i > 0 else val)
+                cell.border = BORDER
+                if item.flag_high_sd:
+                    cell.font = RED_FONT
+
+    write_table(1, f"CONTROLES {goi_short} PFC", YELLOW_FILL, controls)
+    write_table(6, f"SUICIDAS {goi_short} PFC", GREEN_FILL, suicides)
+
+    for col in range(1, 11):
+        ws.column_dimensions[get_column_letter(col)].width = 14
+
+
+def build_workbook(demo_raw: Path | None = None) -> Workbook:
+    wb = Workbook()
+    write_instructions(wb.active)
+    setup_raw_sheet(wb.create_sheet("RAW"))
+
+    if demo_raw:
+        rows = sheet_rows_from_xls(demo_raw)
+        goi, data, order = parse_raw_rows(rows)
+        calcs = calculate_all(goi, data, order)
+        ws_res = wb.create_sheet("Resultados")
+        write_results_sheet(ws_res, calcs, goi, data)
+        ws_glob = wb.create_sheet("GLOBAL")
+        write_global_sheet(ws_glob, calcs, goi)
+        # Copiar RAW de demo
+        ws_raw = wb["RAW"]
+        for r, row in enumerate(rows, 1):
+            for c, val in enumerate(row, 1):
+                if val != "":
+                    ws_raw.cell(row=r, column=c, value=val)
+    else:
+        wb.create_sheet("Resultados")
+        wb.create_sheet("GLOBAL")
+
+    return wb
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--demo", type=Path, help="Rellenar con un RAW de ejemplo (.xls)")
+    parser.add_argument("-o", "--output", type=Path, default=OUTPUT)
+    args = parser.parse_args()
+
+    wb = build_workbook(args.demo)
+    wb.save(args.output)
+    print(f"Plantilla guardada: {args.output}")
+    print("Importe qpcr/Modulo_qPCR.bas en Excel (Alt+F11) y asigne ProcesarPlaca a un botón en RAW.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
