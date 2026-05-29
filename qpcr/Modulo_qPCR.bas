@@ -50,12 +50,14 @@ Public Sub ProcesarPlaca()
 
     Set orden = New Collection
     G_N = 0
-    goi = ""
-    Call LeerBloque(bloque, cS, cT, cCt, cM, cSD, orden, goi)
+    Call LeerBloque(bloque, cS, cT, cCt, cM, cSD, orden)
 
     If G_N = 0 Then Err.Raise 5, , "No hay muestras validas."
-    If goi = "" Then Err.Raise 5, , "No hay un unico gen de interes."
-    If Not ExisteGen(HK_PPIA) Or Not ExisteGen(HK_SYP) Then Err.Raise 5, , "Faltan PPIA o SYP."
+    goi = DetectarGOI()
+    If goi = "" Then Err.Raise 5, , MsgGenesEncontrados()
+    If Not ExisteGen(HK_PPIA) Or Not ExisteGen(HK_SYP) Then
+        Err.Raise 5, , "Faltan PPIA o SYP. Pegue el export COMPLETO del termociclador (los 3 bloques de genes)."
+    End If
 
     Call EscribirTodo(wsRes, wsGlob, orden, goi)
 
@@ -197,16 +199,14 @@ Private Function MediaIdx(idx As Long) As Double
 End Function
 
 Private Sub LeerBloque(bloque As Variant, cS As Long, cT As Long, cCt As Long, _
-    cM As Long, cSD As Long, orden As Collection, ByRef goi As String)
+    cM As Long, cSD As Long, orden As Collection)
 
     Dim f As Long, nf As Long
     Dim sample As String, tgt As String
     Dim idx As Long
     Dim v As Variant
-    Dim g1 As String, gN As Long
     Dim vacias As Long
 
-    g1 = "": gN = 0: goi = ""
     If Not IsArray(bloque) Then Exit Sub
     nf = UBound(bloque, 1)
 
@@ -219,12 +219,7 @@ Private Sub LeerBloque(bloque As Variant, cS As Long, cT As Long, cCt As Long, _
             GoTo Sig
         End If
         vacias = 0
-
-        If tgt <> HK_PPIA And tgt <> HK_SYP Then
-            If g1 = "" Then g1 = tgt: gN = 1
-            ElseIf g1 <> tgt Then gN = 2
-            If Not EnCola(orden, sample) Then orden.Add sample
-        End If
+        If Not EnCola(orden, sample) Then orden.Add sample
 
         idx = BuscarIdx(sample, tgt)
         If idx = 0 Then idx = NuevoIdx(sample, tgt)
@@ -232,9 +227,65 @@ Private Sub LeerBloque(bloque As Variant, cS As Long, cT As Long, cCt As Long, _
         If IsNumeric(v) Then Call AnadirCt(idx, CDbl(v), ValNum(bloque, f, cM), ValNum(bloque, f, cSD))
 Sig:
     Next f
-
-    If gN = 1 Then goi = g1
 End Sub
+
+Private Function EsTargetIgnorar(ByVal t As String) As Boolean
+  ' Excluye controles, basura del export y muestras leidas por error como Target
+    Select Case UCase$(Trim$(t))
+        Case "", "UNKNOWN", "UNDETERMINED", "N/A", "-", "NTC", "NEGATIVE", "POSITIVE", "TASK"
+            EsTargetIgnorar = True
+        Case Else
+            If MuestraOK(t) Then EsTargetIgnorar = True Else EsTargetIgnorar = False
+    End Select
+End Function
+
+Private Function DetectarGOI() As String
+    Dim i As Long
+    Dim t As String
+    Dim unico As String
+    Dim n As Long
+
+    unico = ""
+    n = 0
+    For i = 1 To G_N
+        t = UCase$(Trim$(G_Target(i)))
+        If t = HK_PPIA Or t = HK_SYP Then GoTo Sig
+        If EsTargetIgnorar(t) Then GoTo Sig
+        If n = 0 Then
+            unico = t
+            n = 1
+        ElseIf unico <> t Then
+            DetectarGOI = ""
+            Exit Function
+        End If
+Sig:
+    Next i
+    If n = 1 Then DetectarGOI = unico
+End Function
+
+Private Function MsgGenesEncontrados() As String
+    Dim i As Long
+    Dim t As String
+    Dim lista As String
+    Dim visto As String
+
+    lista = ""
+    For i = 1 To G_N
+        t = UCase$(Trim$(G_Target(i)))
+        If t = HK_PPIA Or t = HK_SYP Or EsTargetIgnorar(t) Then GoTo Sig
+        If InStr(1, "|" & visto & "|", "|" & t & "|", vbTextCompare) = 0 Then
+            visto = visto & "|" & t
+            If lista = "" Then lista = t Else lista = lista & ", " & t
+        End If
+Sig:
+    Next i
+    If lista = "" Then
+        MsgGenesEncontrados = "No se detecto gen de interes. Revise columna Target Name."
+    Else
+        MsgGenesEncontrados = "Hay varios genes de interes o datos incompletos: " & lista & _
+            ". Pegue el export COMPLETO (RGS + PPIA + SYP)."
+    End If
+End Function
 
 Private Function ExisteGen(tgt As String) As Boolean
     Dim i As Long
