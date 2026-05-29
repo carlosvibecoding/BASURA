@@ -15,6 +15,7 @@ from pathlib import Path
 
 import xlrd
 from openpyxl import Workbook
+from openpyxl.drawing.image import Image as XlImage
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
@@ -110,8 +111,7 @@ def setup_raw_sheet(ws) -> None:
     for col in range(2, 15):
         ws.column_dimensions[get_column_letter(col)].width = 12
     # Nota para botón: se añade con xlsxwriter en build_xlsm_button helper o manualmente
-    ws["A2"] = "(Botones e imagen: macro InstalarBotones / ElegirLogo al abrir el .xlsm)"
-    ws["A2"].font = Font(size=9, color="0070C0")
+    ws["A2"] = ""
 
 
 def write_results_headers(ws, goi_label: str) -> None:
