@@ -1,10 +1,10 @@
 Attribute VB_Name = "Modulo_qPCR"
 ' qPCR - Pegar export StepOne COMPLETO en RAW (celda A1). Macro: ProcesarPlaca
-' Version 3.8 - Grupos configurables; botones decorados en RAW
+' Version 3.9 - Panel RAW izquierda + logo opcional; texto ASCII
 
 Option Explicit
 
-Private Const MACRO_VER As String = "3.8"
+Private Const MACRO_VER As String = "3.9"
 Private Const MAX_GRUPOS_GLOBAL As Long = 24
 Private Const COL_BLOQUE_SYP As Long = 17
 Private Const CT_MIN As Double = 5#
@@ -107,34 +107,127 @@ Public Sub Auto_Open()
     Call InstalarBotones
 End Sub
 
-'--- Botones decorados a la derecha (no tapar zona de pegado A3+) ---
+'--- Panel superior izquierdo (logo + texto + botones). Pegar datos en A3+ ---
 Public Sub InstalarBotones()
     Dim ws As Worksheet
-    Dim L As Single, T As Single, esp As Single
+    Dim L0 As Single, T0 As Single, bL As Single, bT As Single, esp As Single
+    Dim logoW As Single, textoW As Single
     On Error Resume Next
     Set ws = ThisWorkbook.Worksheets("RAW")
     If ws Is Nothing Then Exit Sub
+    Call EliminarPanelRAW(ws)
+    On Error GoTo 0
+    ws.Rows(1).RowHeight = 6
+    ws.Rows(2).RowHeight = 40
+    ws.Range("A1:K2").Interior.Color = RGB(237, 242, 247)
+    ws.Range("A1").Value = ""
+    ws.Range("A3").Value = "Pegue aqui el export StepOne (Sample Name, Target Name, Ct...)"
+    ws.Range("A3").Font.Italic = True
+    ws.Range("A3").Font.Color = RGB(90, 90, 90)
+    L0 = ws.Range("A1").Left + 4
+    T0 = ws.Range("A1").Top + 2
+    logoW = ColocarLogoRAW(ws, L0, T0, 52, 36)
+    L0 = L0 + logoW
+    textoW = 250
+    Call CrearBannerTexto(ws, "qPCR_banner", L0, T0, textoW, 36, _
+        "Plantilla qPCR" & vbCrLf & "Pegar export completo en celda A3", RGB(237, 242, 247))
+    bL = L0 + textoW + 12
+    bT = T0 + 3
+    esp = 8
+    Call CrearBotonDecorado(ws, "btn_qPCR_Procesar", "ProcesarPlaca", "Procesar", _
+        bL, bT, 100, 30, RGB(0, 112, 192), RGB(255, 255, 255))
+    Call CrearBotonDecorado(ws, "btn_qPCR_Limpiar", "LimpiarDatos", "Limpiar", _
+        bL + 100 + esp, bT, 78, 30, RGB(255, 255, 255), RGB(192, 0, 0))
+    Call CrearBotonDecorado(ws, "btn_qPCR_Anadir", "AnadirPlacaRAW", "+ Placa", _
+        bL + 100 + esp + 78 + esp, bT, 78, 30, RGB(255, 193, 7), RGB(40, 40, 40))
+End Sub
+
+Private Sub EliminarPanelRAW(ws As Worksheet)
+    On Error Resume Next
     ws.Shapes("btn_qPCR_Procesar").Delete
     ws.Shapes("btn_qPCR_Limpiar").Delete
     ws.Shapes("btn_qPCR_Anadir").Delete
+    ws.Shapes("qPCR_banner").Delete
+    ws.Shapes("qPCR_logo").Delete
     ws.Shapes("qPCR_panel_titulo").Delete
     On Error GoTo 0
-    ws.Rows(1).RowHeight = 18
-    ws.Rows(2).RowHeight = 34
-    ws.Range("A1").Value = "qPCR — Pegar export StepOne desde fila 3 (celda A3)"
-    ws.Range("A1").Font.Bold = True
-    ws.Range("A1").Font.Size = 11
-    ws.Range("A1").Font.Color = RGB(0, 70, 130)
-    L = ws.Range("N2").Left
-    T = ws.Range("N2").Top
-    esp = 6
-    Call CrearBotonDecorado(ws, "btn_qPCR_Procesar", "ProcesarPlaca", "Procesar placa", _
-        L, T, 118, 30, RGB(0, 120, 212), RGB(255, 255, 255))
-    Call CrearBotonDecorado(ws, "btn_qPCR_Limpiar", "LimpiarDatos", "Limpiar", _
-        L + 118 + esp, T, 88, 30, RGB(245, 245, 245), RGB(180, 0, 0))
-    Call CrearBotonDecorado(ws, "btn_qPCR_Anadir", "AnadirPlacaRAW", "+ Placa", _
-        L + 118 + esp + 88 + esp, T, 88, 30, RGB(255, 192, 0), RGB(50, 50, 50))
-    Call CrearEtiquetaPanel(ws, "qPCR_panel_titulo", "Acciones", L, T - 14, 300, 12)
+End Sub
+
+Private Function LeerRutaLogo() As String
+    Dim ws As Worksheet
+    On Error Resume Next
+    Set ws = ThisWorkbook.Worksheets("Instrucciones")
+    On Error GoTo 0
+    LeerRutaLogo = ""
+    If ws Is Nothing Then Exit Function
+    LeerRutaLogo = Trim$(CStr(ws.Range("B24").Value2))
+End Function
+
+' Logo: 1) figura qPCR_logo en Instrucciones  2) ruta en Instrucciones!B24
+Private Function ColocarLogoRAW(ws As Worksheet, L As Single, T As Single, W As Single, H As Single) As Single
+    Dim wsI As Worksheet
+    Dim sh As Shape, pic As Shape
+    Dim ruta As String
+    ColocarLogoRAW = 0
+    On Error Resume Next
+    Set wsI = ThisWorkbook.Worksheets("Instrucciones")
+    If Not wsI Is Nothing Then
+        Set sh = wsI.Shapes("qPCR_logo")
+        If Not sh Is Nothing Then
+            sh.Copy
+            ws.Paste
+            Set pic = ws.Shapes(ws.Shapes.Count)
+            pic.Name = "qPCR_logo"
+            pic.Left = L
+            pic.Top = T
+            pic.Width = W
+            pic.Height = H
+            pic.Placement = xlFreeFloating
+            ColocarLogoRAW = W + 10
+            Exit Function
+        End If
+    End If
+    ruta = LeerRutaLogo()
+    If Len(ruta) > 0 Then
+        If Dir(ruta, vbNormal) <> "" Then
+            Set pic = ws.Shapes.AddPicture(ruta, msoFalse, msoTrue, L, T, W, H)
+            pic.Name = "qPCR_logo"
+            pic.Placement = xlFreeFloating
+            ColocarLogoRAW = W + 10
+        End If
+    End If
+    On Error GoTo 0
+End Function
+
+Private Sub CrearBannerTexto(ws As Worksheet, nombre As String, L As Single, T As Single, _
+    W As Single, H As Single, texto As String, rgbFill As Long)
+    Dim sh As Shape
+    Set sh = ws.Shapes.AddShape(msoShapeRectangle, L, T, W, H)
+    sh.Name = nombre
+    sh.Fill.ForeColor.RGB = rgbFill
+    sh.Line.Visible = msoFalse
+    With sh.TextFrame2
+        .VerticalAnchor = msoAnchorMiddle
+        .MarginLeft = 6
+        .TextRange.Text = texto
+        .TextRange.Font.Size = 10
+        .TextRange.Font.Bold = msoTrue
+        .TextRange.Font.Fill.ForeColor.RGB = RGB(0, 70, 130)
+        .TextRange.ParagraphFormat.Alignment = msoAlignLeft
+    End With
+End Sub
+
+' Asignar logo: elige imagen y guarda ruta en Instrucciones!B24
+Public Sub ElegirLogo()
+    Dim ruta As String
+    Dim ws As Worksheet
+    ruta = Application.GetOpenFilename("Imagenes (*.png;*.jpg;*.jpeg;*.gif),*.png;*.jpg;*.jpeg;*.gif", , _
+        "Logo para plantilla qPCR")
+    If ruta = "False" Then Exit Sub
+    Set ws = ThisWorkbook.Worksheets("Instrucciones")
+    ws.Range("B24").Value = ruta
+    Call InstalarBotones
+    MsgBox "Logo asignado. Se muestra en la hoja RAW.", vbInformation, "qPCR"
 End Sub
 
 Private Sub CrearBotonDecorado(ws As Worksheet, nombre As String, macro As String, _
@@ -156,20 +249,6 @@ Private Sub CrearBotonDecorado(ws As Worksheet, nombre As String, macro As Strin
         .TextRange.Font.Bold = msoTrue
         .TextRange.Font.Fill.ForeColor.RGB = rgbText
         .TextRange.ParagraphFormat.Alignment = msoAlignCenter
-    End With
-End Sub
-
-Private Sub CrearEtiquetaPanel(ws As Worksheet, nombre As String, texto As String, _
-    L As Single, T As Single, W As Single, H As Single)
-    Dim sh As Shape
-    Set sh = ws.Shapes.AddShape(msoShapeRectangle, L, T, W, H)
-    sh.Name = nombre
-    sh.Fill.Visible = msoFalse
-    sh.Line.Visible = msoFalse
-    With sh.TextFrame2
-        .TextRange.Text = texto
-        .TextRange.Font.Size = 8
-        .TextRange.Font.Fill.ForeColor.RGB = RGB(100, 100, 100)
     End With
 End Sub
 

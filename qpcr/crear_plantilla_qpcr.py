@@ -74,6 +74,7 @@ def write_instructions(ws) -> None:
         "  B22 — Nombres de grupos (ej: C=Controles;S=Suicidas;A=Alcohólicos)",
         "  Si B22 está vacío, se usan nombres automáticos según el prefijo (C, S, A…).",
         "  Las muestras pueden ser cualquier letra(s)+número: C10, S5, A12, ALC3…",
+        "  Logo: macro ElegirLogo o figura qPCR_logo en Instrucciones (B24 = ruta).",
         "",
         "Cálculos (por cada gen control PPIA y SYP):",
         "  Paso 1: ΔCt = Ct mean (gen problema) − Ct mean (control)",
@@ -91,21 +92,26 @@ def write_instructions(ws) -> None:
     ws["B21"] = "C"
     ws["A22"] = "Nombres grupos (C=Controles;S=Suicidas;A=Alcohólicos):"
     ws["B22"] = ""
+    ws["A23"] = "Logo (opcional):"
+    ws["A24"] = "Ruta imagen o figura qPCR_logo en esta hoja (macro ElegirLogo):"
+    ws["B24"] = ""
     ws.column_dimensions["B"].width = 55
 
 
 def setup_raw_sheet(ws) -> None:
     ws.title = "RAW"
-    ws["A1"] = "qPCR — Pegar export StepOne desde fila 3 (celda A3)"
-    ws["A1"].font = Font(bold=True, size=11, color="00468C")
-    ws["A3"] = "Pegue aquí el export (Sample Name, Target Name, Ct, Ct Mean, Ct SD…)"
+    ws["A1"] = ""
+    ws["A1"].fill = PatternFill("solid", fgColor="EDF2F7")
+    for col in range(1, 12):
+        ws.cell(row=2, column=col).fill = PatternFill("solid", fgColor="EDF2F7")
+    ws["A3"] = "Pegue aqui el export StepOne (Sample Name, Target Name, Ct, Ct Mean, Ct SD...)"
     ws["A3"].font = Font(italic=True, color="666666")
     ws.column_dimensions["A"].width = 14
     for col in range(2, 15):
         ws.column_dimensions[get_column_letter(col)].width = 12
     # Nota para botón: se añade con xlsxwriter en build_xlsm_button helper o manualmente
-    ws["N1"] = "Botones → (se crean al abrir el libro con la macro importada)"
-    ws["N1"].font = Font(size=9, color="0070C0")
+    ws["A2"] = "(Botones e imagen: macro InstalarBotones / ElegirLogo al abrir el .xlsm)"
+    ws["A2"].font = Font(size=9, color="0070C0")
 
 
 def write_results_headers(ws, goi_label: str) -> None:

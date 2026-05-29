@@ -7,7 +7,7 @@ Repositorio: https://github.com/carlosvibecoding/BASURA
 | Archivo | Enlace directo |
 |---------|----------------|
 | **Plantilla Excel** | https://github.com/carlosvibecoding/BASURA/raw/main/qPCR_plantilla.xlsx |
-| **Macro VBA v3.8** | https://github.com/carlosvibecoding/BASURA/raw/main/qpcr/Modulo_qPCR.bas |
+| **Macro VBA v3.9** | https://github.com/carlosvibecoding/BASURA/raw/main/qpcr/Modulo_qPCR.bas |
 | **Todo el proyecto (ZIP)** | https://github.com/carlosvibecoding/BASURA/archive/refs/heads/main.zip |
 | **Procesar sin macro** | https://github.com/carlosvibecoding/BASURA/raw/main/qpcr/procesar_placa.py |
 
@@ -15,7 +15,7 @@ Repositorio: https://github.com/carlosvibecoding/BASURA
 
 Al ejecutar **ProcesarPlaca**, si funciona debe decir:
 
-`Analisis completado: RGS12 (macro 3.8)`
+`Analisis completado: RGS12 (macro 3.9)`
 
 Tras importar la macro, abre el libro de nuevo (o ejecuta **InstalarBotones**) para ver los botones en RAW.
 
@@ -40,7 +40,16 @@ En **Instrucciones**:
 
 Muestras válidas: **letras + número** (`C10`, `S5`, `A12`, `ALC3`…). GLOBAL crea una tabla por cada prefijo distinto (no control).
 
-## Botones en RAW
+## Logo personalizado (macro 3.9)
+
+Dos formas:
+
+1. **Macro `ElegirLogo`** (Alt+F8): elige un PNG/JPG y guarda la ruta en Instrucciones B24.
+2. **Manual:** en hoja **Instrucciones**, Insertar > Imagen, renombrar la figura a **`qPCR_logo`** (panel de selección).
+
+Al abrir el libro o pulsar Procesar, el logo aparece a la **izquierda** del panel en RAW.
+
+## Botones en RAW (panel izquierdo)
 
 | Botón | Acción |
 |-------|--------|
