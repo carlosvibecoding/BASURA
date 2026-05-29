@@ -1,9 +1,10 @@
 Attribute VB_Name = "Modulo_qPCR"
-' qPCR - Pegar export StepOne completo en RAW (celda A1). Macro: ProcesarPlaca
-' Sin Dictionary ni ReDim Preserve en bucle (evita error de pila)
+' qPCR - Pegar export StepOne COMPLETO en RAW (celda A1). Macro: ProcesarPlaca
+' Version 3.1
 
 Option Explicit
 
+Private Const MACRO_VER As String = "3.1"
 Private Const HK_PPIA As String = "PPIA"
 Private Const HK_SYP As String = "SYP"
 Private Const SD_UMBRAL As Double = 0.3
@@ -45,8 +46,8 @@ Public Sub ProcesarPlaca()
     headerRow = BuscarCabecera(wsRaw, cS, cT, cCt, cM, cSD)
     If headerRow = 0 Then Err.Raise 5, , "No se encontro cabecera Sample Name / Target Name / Ct."
 
-    lastRow = UltimaFila(wsRaw, headerRow, cS)
-    bloque = wsRaw.Range(wsRaw.Cells(headerRow + 1, 1), wsRaw.Cells(lastRow, 30)).Value2
+    lastRow = UltimaFila(wsRaw, headerRow, cS, cT)
+    bloque = LeerRango2D(wsRaw, headerRow + 1, 1, lastRow, 30)
 
     Set orden = New Collection
     G_N = 0
@@ -64,7 +65,7 @@ Public Sub ProcesarPlaca()
     Application.Calculation = xlCalculationAutomatic
     Application.EnableEvents = True
     Application.ScreenUpdating = True
-    MsgBox "Analisis completado: " & goi, vbInformation, "qPCR"
+    MsgBox "Analisis completado: " & goi & " (macro " & MACRO_VER & ")", vbInformation, "qPCR"
     Exit Sub
 
 ErrH:
@@ -105,8 +106,8 @@ Private Function BuscarCabecera(ws As Worksheet, ByRef cS As Long, ByRef cT As L
             If t = "" Then GoTo Nx
             If InStr(t, "sample name") > 0 Then cS = c: okS = True
             If InStr(t, "target name") > 0 Then cT = c: okT = True
-            If t = "ct" Then cCt = c: okC = True
-            If InStr(t, "ct mean") > 0 Then cM = c
+            If EsColumnaCtSuelto(t) Then cCt = c: okC = True
+            If InStr(t, "ct mean") > 0 And InStr(t, "delta") = 0 And InStr(t, ChrW$(916)) = 0 Then cM = c
             If InStr(t, "ct sd") > 0 Then cSD = c
 Nx:
         Next c
@@ -114,11 +115,61 @@ Nx:
     Next r
 End Function
 
-Private Function UltimaFila(ws As Worksheet, headerRow As Long, cS As Long) As Long
-    Dim lr As Long
-    lr = ws.Cells(ws.Rows.Count, cS).End(xlUp).Row
-    If lr > headerRow + 250 Then lr = headerRow + 250
+Private Function EsColumnaCtSuelto(ByVal t As String) As Boolean
+    ' Solo la columna "Ct", no "dCt" / "ddCt"
+    EsColumnaCtSuelto = False
+    If t = "ct" Then EsColumnaCtSuelto = True: Exit Function
+    If InStr(t, " ") > 0 Then Exit Function
+    If InStr(t, "delta") > 0 Then Exit Function
+    If InStr(t, ChrW$(916)) > 0 Then Exit Function
+    If Len(t) = 2 And Left$(t, 1) = "c" And Right$(t, 1) = "t" Then EsColumnaCtSuelto = True
+End Function
+
+Private Function UltimaFila(ws As Worksheet, headerRow As Long, cS As Long, cT As Long) As Long
+    Dim lrS As Long, lrT As Long, lr As Long
+    lrS = ws.Cells(ws.Rows.Count, cS).End(xlUp).Row
+    lrT = ws.Cells(ws.Rows.Count, cT).End(xlUp).Row
+    If lrS > lrT Then lr = lrS Else lr = lrT
+    If lr > headerRow + 400 Then lr = headerRow + 400
+    If lr < headerRow + 1 Then lr = headerRow + 1
     UltimaFila = lr
+End Function
+
+Private Function LeerRango2D(ws As Worksheet, r1 As Long, c1 As Long, r2 As Long, c2 As Long) As Variant
+    Dim v As Variant
+    If r2 < r1 Then r2 = r1
+    v = ws.Range(ws.Cells(r1, c1), ws.Cells(r2, c2)).Value2
+    LeerRango2D = AsegurarMatriz2D(v, r2 - r1 + 1, c2 - c1 + 1)
+End Function
+
+Private Function AsegurarMatriz2D(v As Variant, nFilas As Long, nCols As Long) As Variant
+    Dim m() As Variant
+    Dim i As Long, j As Long
+    If nFilas < 1 Then nFilas = 1
+    If nCols < 1 Then nCols = 1
+    ReDim m(1 To nFilas, 1 To nCols)
+    If Not IsArray(v) Then
+        m(1, 1) = v
+        AsegurarMatriz2D = m
+        Exit Function
+    End If
+    On Error Resume Next
+    j = UBound(v, 2)
+    If Err.Number <> 0 Then
+        Err.Clear
+        For i = 1 To nFilas
+            m(i, 1) = v(i)
+        Next i
+        AsegurarMatriz2D = m
+        Exit Function
+    End If
+    On Error GoTo 0
+    For i = 1 To nFilas
+        For j = 1 To nCols
+            m(i, j) = v(i, j)
+        Next j
+    Next i
+    AsegurarMatriz2D = m
 End Function
 
 Private Function MuestraOK(ByVal s As String) As Boolean
@@ -134,17 +185,22 @@ Private Function MuestraOK(ByVal s As String) As Boolean
 End Function
 
 Private Function ValTxt(bloque As Variant, f As Long, col As Long) As String
-    If Not IsArray(bloque) Then ValTxt = "": Exit Function
-    If col < 1 Or col > UBound(bloque, 2) Then ValTxt = "": Exit Function
-    If f < 1 Or f > UBound(bloque, 1) Then ValTxt = "": Exit Function
-    ValTxt = Trim$(CStr(bloque(f, col)))
+    Dim v As Variant
+    v = CeldaMatriz(bloque, f, col)
+    If IsEmpty(v) Then ValTxt = "" Else ValTxt = Trim$(CStr(v))
 End Function
 
 Private Function ValNum(bloque As Variant, f As Long, col As Long) As Variant
-    If Not IsArray(bloque) Then ValNum = Empty: Exit Function
-    If col < 1 Or col > UBound(bloque, 2) Then ValNum = Empty: Exit Function
-    If f < 1 Or f > UBound(bloque, 1) Then ValNum = Empty: Exit Function
-    ValNum = bloque(f, col)
+    ValNum = CeldaMatriz(bloque, f, col)
+End Function
+
+Private Function CeldaMatriz(bloque As Variant, f As Long, col As Long) As Variant
+    On Error Resume Next
+    CeldaMatriz = Empty
+    If Not IsArray(bloque) Then Exit Function
+    If f < 1 Or col < 1 Then Exit Function
+    If f > UBound(bloque, 1) Or col > UBound(bloque, 2) Then Exit Function
+    CeldaMatriz = bloque(f, col)
 End Function
 
 Private Function EnCola(c As Collection, s As String) As Boolean
@@ -280,10 +336,14 @@ Private Function MsgGenesEncontrados() As String
 Sig:
     Next i
     If lista = "" Then
-        MsgGenesEncontrados = "No se detecto gen de interes. Revise columna Target Name."
+        MsgGenesEncontrados = "No se detecto el gen de interes." & vbCrLf & vbCrLf & _
+            "Causas habituales:" & vbCrLf & _
+            "1) Solo pego el bloque RGS (falta PPIA y SYP debajo)." & vbCrLf & _
+            "2) Macro antigua: importe Modulo_qPCR.bas version " & MACRO_VER & "."
     Else
-        MsgGenesEncontrados = "Hay varios genes de interes o datos incompletos: " & lista & _
-            ". Pegue el export COMPLETO (RGS + PPIA + SYP)."
+        MsgGenesEncontrados = "Genes detectados: " & lista & vbCrLf & vbCrLf & _
+            "Debe haber UN solo gen de interes + PPIA + SYP." & vbCrLf & _
+            "Pegue el export COMPLETO del StepOne (los 3 bloques)."
     End If
 End Function
 
