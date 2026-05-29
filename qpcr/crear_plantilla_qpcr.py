@@ -66,8 +66,8 @@ def write_instructions(ws) -> None:
     lines = [
         "PLANTILLA qPCR — ΔΔCt (PPIA y SYP)",
         "",
-        "1. Pegue el export del termociclador (StepOne) en la hoja RAW, desde la celda A3.",
-        "   Puede pegar varias exportaciones una debajo de otra; al pulsar «Procesar» se analiza todo el bloque.",
+        "1. Pegue el export del termociclador (StepOne) en la hoja RAW, desde la celda A1 (export completo).",
+        "   Debe incluir el gen de interés (ej. RGS10), PPIA y SYP. Varias placas: una debajo de otra.",
         "2. Importe la macro (solo la primera vez): Alt+F11 → Archivo → Importar archivo → qpcr/Modulo_qPCR.bas",
         "3. En la hoja RAW, pulse el botón «Procesar placa» (o ejecute la macro ProcesarPlaca).",
         "",
@@ -103,7 +103,7 @@ def write_instructions(ws) -> None:
     ws["A22"] = "Nombres grupos (C=Controles;S=Suicidas;A=Alcohólicos):"
     ws["B22"] = ""
     ws["A23"] = "Boton procesar:"
-    ws["B23"] = "Clic en el raton de la hoja RAW = Procesar placa (macro 4.1)"
+    ws["B23"] = "Clic en el raton (columna O, hoja RAW) = Procesar placa (macro 4.2)"
     ws.column_dimensions["B"].width = 55
 
 
@@ -111,20 +111,36 @@ def setup_raw_sheet(ws) -> None:
     ws.title = "RAW"
     ws.sheet_view.showGridLines = True
     fill_hdr = PatternFill("solid", fgColor=LAB_HEADER)
+    fill_panel = PatternFill("solid", fgColor="B2DFDB")
     fill_data = PatternFill("solid", fgColor=LAB_BG)
-    for col in range(1, 18):
+    for col in range(1, 15):
         ws.cell(row=1, column=col).fill = fill_hdr
         ws.cell(row=2, column=col).fill = fill_hdr
+    for col in range(15, 20):
+        ws.cell(row=1, column=col).fill = fill_panel
+        ws.cell(row=2, column=col).fill = fill_panel
     for row in range(3, 80):
-        for col in range(1, 18):
+        for col in range(1, 15):
             ws.cell(row=row, column=col).fill = fill_data
-    ws["A3"] = "Pegue aqui el export StepOne (Sample Name, Target Name, Ct, Ct Mean, Ct SD...)"
-    ws["A3"].font = Font(italic=True, color=LAB_TEXT, size=10)
+    ws["A1"] = "Pegue aqui el export StepOne completo (A1): RGS + PPIA + SYP"
+    ws["A1"].font = Font(italic=True, color=LAB_TEXT, size=10)
+    ws["O1"] = "qPCR"
+    ws["O1"].font = Font(bold=True, color=LAB_ACCENT, size=11)
+    ws["O2"] = "Ratón = procesar"
+    ws["O2"].font = Font(italic=True, color=LAB_ACCENT, size=9)
     ws.column_dimensions["A"].width = 14
-    for col in range(2, 16):
+    for col in range(2, 15):
         ws.column_dimensions[get_column_letter(col)].width = 12
-    ws.row_dimensions[1].height = 8
-    ws.row_dimensions[2].height = 52
+    ws.column_dimensions["O"].width = 3
+    ws.column_dimensions["P"].width = 11
+    ws.column_dimensions["Q"].width = 11
+    ws.row_dimensions[1].height = 6
+    ws.row_dimensions[2].height = 30
+    if ASSET_FONDO_RAW.is_file():
+        bg = XlImage(str(ASSET_FONDO_RAW))
+        bg.width = 640
+        bg.height = 48
+        ws.add_image(bg, "A1")
 
 
 def write_results_headers(ws, goi_label: str) -> None:
@@ -377,7 +393,25 @@ def build_workbook(demo_raw: Path | None = None) -> Workbook:
 
     setup_datos_calc_sheets(wb)
     embed_recursos_lab(wb)
+    for name in ("Instrucciones", "Resultados", "GLOBAL", "Datos", "Calculos"):
+        if name in wb.sheetnames:
+            decorar_cabecera_hoja(wb[name], cols=8 if name != "Instrucciones" else 4)
     return wb
+
+
+def decorar_cabecera_hoja(ws, cols: int = 8) -> None:
+    fill = PatternFill("solid", fgColor=LAB_HEADER)
+    for c in range(1, cols + 1):
+        cell = ws.cell(row=1, column=c)
+        cell.fill = fill
+        if cell.value:
+            cell.font = Font(bold=True, color=LAB_ACCENT)
+    corner = ASSETS_DIR / "dna_esquina.png"
+    if corner.is_file():
+        img = XlImage(str(corner))
+        img.width = 36
+        img.height = 36
+        ws.add_image(img, f"{get_column_letter(cols)}1")
 
 
 def embed_recursos_lab(wb: Workbook) -> None:
@@ -395,7 +429,7 @@ def embed_recursos_lab(wb: Workbook) -> None:
     if ASSET_FONDO_RAW.is_file():
         bg = XlImage(str(ASSET_FONDO_RAW))
         bg.width = 720
-        bg.height = 96
+        bg.height = 72
         ws.add_image(bg, "D1")
 
 
