@@ -1,11 +1,15 @@
 Attribute VB_Name = "Modulo_qPCR"
 ' qPCR - Pegar export StepOne COMPLETO en RAW (celda A1). Macro: ProcesarPlaca
-' Version 4.0 - Boton fijo raton (imagen embebida); panel izquierda
+' Version 4.1 - Raton laboratorio mono + fondo molecular; tema lab
 
 Option Explicit
 
-Private Const MACRO_VER As String = "4.0"
-Private Const ASSET_RATON As String = "raton_procesar.png"
+Private Const MACRO_VER As String = "4.1"
+Private Const ASSET_RATON As String = "raton_boton.png"
+Private Const ASSET_FONDO As String = "fondo_cabecera_raw.png"
+Private Const LAB_BG As Long = 15790330      ' RGB(240,247,250)
+Private Const LAB_HDR As Long = 14737632   ' RGB(224,242,241)
+Private Const LAB_TEAL As Long = 6908262    ' RGB(0,105,92)
 Private Const MAX_GRUPOS_GLOBAL As Long = 24
 Private Const COL_BLOQUE_SYP As Long = 17
 Private Const CT_MIN As Double = 5#
@@ -108,7 +112,7 @@ Public Sub Auto_Open()
     Call InstalarBotones
 End Sub
 
-'--- Panel RAW: boton raton fijo (clic = Procesar) + texto + Limpiar / +Placa ---
+'--- Panel RAW estilo laboratorio: fondo ADN + raton mono (clic = Procesar) ---
 Public Sub InstalarBotones()
     Dim ws As Worksheet
     Dim L0 As Single, T0 As Single, bL As Single, bT As Single, esp As Single
@@ -118,30 +122,37 @@ Public Sub InstalarBotones()
     If ws Is Nothing Then Exit Sub
     Call EliminarPanelRAW(ws)
     On Error GoTo 0
-    ws.Rows(1).RowHeight = 8
-    ws.Rows(2).RowHeight = 52
-    ws.Range("A1:L2").Interior.Color = RGB(237, 242, 247)
+    Call AplicarTemaLabRAW(ws)
     ws.Range("A1:A2").Value = ""
     ws.Range("A3").Value = "Pegue aqui el export StepOne (Sample Name, Target Name, Ct...)"
     ws.Range("A3").Font.Italic = True
-    ws.Range("A3").Font.Color = RGB(90, 90, 90)
-    L0 = ws.Range("A1").Left + 6
-    T0 = ws.Range("A1").Top + 4
-    anchoRaton = ColocarBotonRaton(ws, L0, T0, 56, 48)
-    L0 = L0 + anchoRaton + 6
-    Call CrearBannerTexto(ws, "qPCR_banner", L0, T0 + 2, 220, 44, _
-        "Plantilla qPCR" & vbCrLf & "Clic en el raton o pegar datos en A3", RGB(237, 242, 247))
-    bL = L0 + 228
-    bT = T0 + 10
-    esp = 8
+    ws.Range("A3").Font.Color = RGB(55, 71, 79)
+    Call ColocarFondoLab(ws)
+    L0 = ws.Range("B1").Left + 4
+    T0 = ws.Range("B1").Top + 6
+    anchoRaton = ColocarBotonRaton(ws, L0, T0, 64, 64)
+    L0 = L0 + anchoRaton + 10
+    Call CrearBannerTexto(ws, "qPCR_banner", L0, T0 + 4, 240, 48, _
+        "qPCR laboratorio" & vbCrLf & "Clic en el raton para procesar  |  Datos en A3", LAB_HDR)
+    bL = L0 + 248
+    bT = T0 + 18
+    esp = 10
     Call CrearBotonDecorado(ws, "btn_qPCR_Limpiar", "LimpiarDatos", "Limpiar", _
-        bL, bT, 78, 28, RGB(255, 255, 255), RGB(192, 0, 0))
+        bL, bT, 82, 30, RGB(255, 255, 255), RGB(183, 28, 28))
     Call CrearBotonDecorado(ws, "btn_qPCR_Anadir", "AnadirPlacaRAW", "+ Placa", _
-        bL + 78 + esp, bT, 78, 28, RGB(255, 193, 7), RGB(40, 40, 40))
+        bL + 82 + esp, bT, 82, 30, RGB(178, 223, 219), LAB_TEAL)
+End Sub
+
+Private Sub AplicarTemaLabRAW(ws As Worksheet)
+    ws.Rows(1).RowHeight = 8
+    ws.Rows(2).RowHeight = 56
+    ws.Range("A1:P2").Interior.Color = LAB_HDR
+    ws.Range("A3:P200").Interior.Color = LAB_BG
 End Sub
 
 Private Sub EliminarPanelRAW(ws As Worksheet)
     On Error Resume Next
+    ws.Shapes("qPCR_fondo_lab").Delete
     ws.Shapes("btn_raton_procesar").Delete
     ws.Shapes("btn_qPCR_Procesar").Delete
     ws.Shapes("btn_qPCR_Limpiar").Delete
@@ -152,17 +163,55 @@ Private Sub EliminarPanelRAW(ws As Worksheet)
     On Error GoTo 0
 End Sub
 
-Private Function RutaAssetRaton() As String
+Private Function RutaAsset(nombre As String) As String
     Dim p As String, sep As String
     sep = Application.PathSeparator
     p = ThisWorkbook.Path
     If Len(p) = 0 Then Exit Function
     If Right$(p, 1) <> sep Then p = p & sep
-    RutaAssetRaton = p & "qpcr" & sep & "assets" & sep & ASSET_RATON
-    If Dir(RutaAssetRaton, vbNormal) = "" Then RutaAssetRaton = p & ASSET_RATON
+    RutaAsset = p & "qpcr" & sep & "assets" & sep & nombre
+    If Dir(RutaAsset, vbNormal) = "" Then RutaAsset = p & nombre
 End Function
 
-' Imagen fija del raton: copia hoja Recursos o archivo assets del repo
+Private Sub ColocarFondoLab(ws As Worksheet)
+    Dim wsR As Worksheet
+    Dim sh As Shape, pic As Shape
+    Dim ruta As String
+    Dim L As Single, T As Single, W As Single
+    On Error Resume Next
+    L = ws.Range("A1").Left
+    T = ws.Range("A1").Top
+    W = ws.Range("M1").Left + ws.Range("M1").Width - L
+    Set wsR = ThisWorkbook.Worksheets("Recursos")
+    If Not wsR Is Nothing Then
+        If wsR.Shapes.Count >= 2 Then
+            Set sh = wsR.Shapes(2)
+            If sh.Type = msoPicture Or sh.Type = msoLinkedPicture Then
+                sh.Copy
+                ws.Paste
+                Set pic = ws.Shapes(ws.Shapes.Count)
+                pic.Name = "qPCR_fondo_lab"
+                pic.Left = L
+                pic.Top = T
+                pic.Width = W
+                pic.Height = ws.Rows(1).Height + ws.Rows(2).Height + 6
+                pic.Placement = xlFreeFloating
+                pic.ZOrder msoSendToBack
+                Exit Sub
+            End If
+        End If
+    End If
+    ruta = RutaAsset(ASSET_FONDO)
+    If Len(ruta) > 0 And Dir(ruta, vbNormal) <> "" Then
+        Set pic = ws.Shapes.AddPicture(ruta, msoFalse, msoTrue, L, T, W, 70)
+        pic.Name = "qPCR_fondo_lab"
+        pic.Placement = xlFreeFloating
+        pic.ZOrder msoSendToBack
+    End If
+    On Error GoTo 0
+End Sub
+
+' Raton de laboratorio (imagen fija en Recursos)
 Private Function ColocarBotonRaton(ws As Worksheet, L As Single, T As Single, W As Single, H As Single) As Single
     Dim wsR As Worksheet
     Dim sh As Shape, pic As Shape
@@ -171,38 +220,41 @@ Private Function ColocarBotonRaton(ws As Worksheet, L As Single, T As Single, W 
     On Error Resume Next
     Set wsR = ThisWorkbook.Worksheets("Recursos")
     If Not wsR Is Nothing Then
+        Set sh = Nothing
+        On Error Resume Next
         Set sh = wsR.Shapes("btn_raton_procesar")
-        If sh Is Nothing Then
-            For Each sh In wsR.Shapes
-                If sh.Type = msoPicture Or sh.Type = msoLinkedPicture Then Exit For
-            Next sh
+        On Error GoTo 0
+        If sh Is Nothing And wsR.Shapes.Count >= 1 Then
+            Set sh = wsR.Shapes(1)
         End If
         If Not sh Is Nothing Then
-            sh.Copy
-            ws.Paste
-            Set pic = ws.Shapes(ws.Shapes.Count)
-            pic.Name = "btn_raton_procesar"
-            pic.Left = L
-            pic.Top = T
-            pic.Width = W
-            pic.Height = H
-            pic.Placement = xlFreeFloating
-            pic.OnAction = "ProcesarPlaca"
-            ColocarBotonRaton = W + 8
-            Exit Function
+            If sh.Type = msoPicture Or sh.Type = msoLinkedPicture Then
+                sh.Copy
+                ws.Paste
+                Set pic = ws.Shapes(ws.Shapes.Count)
+                pic.Name = "btn_raton_procesar"
+                pic.Left = L
+                pic.Top = T
+                pic.Width = W
+                pic.Height = H
+                pic.Placement = xlFreeFloating
+                pic.OnAction = "ProcesarPlaca"
+                ColocarBotonRaton = W + 10
+                Exit Function
+            End If
         End If
     End If
-    ruta = RutaAssetRaton()
+    ruta = RutaAsset(ASSET_RATON)
     If Len(ruta) > 0 And Dir(ruta, vbNormal) <> "" Then
         Set pic = ws.Shapes.AddPicture(ruta, msoFalse, msoTrue, L, T, W, H)
         pic.Name = "btn_raton_procesar"
         pic.Placement = xlFreeFloating
         pic.OnAction = "ProcesarPlaca"
-        ColocarBotonRaton = W + 8
+        ColocarBotonRaton = W + 10
     Else
         Call CrearBotonDecorado(ws, "btn_raton_procesar", "ProcesarPlaca", "Procesar", _
-            L, T, W + 20, H, RGB(0, 112, 192), RGB(255, 255, 255))
-        ColocarBotonRaton = W + 28
+            L, T, W + 16, H, LAB_TEAL, RGB(255, 255, 255))
+        ColocarBotonRaton = W + 26
     End If
     On Error GoTo 0
 End Function
@@ -210,26 +262,25 @@ End Function
 Private Sub CrearBannerTexto(ws As Worksheet, nombre As String, L As Single, T As Single, _
     W As Single, H As Single, texto As String, rgbFill As Long)
     Dim sh As Shape
-    Set sh = ws.Shapes.AddShape(msoShapeRectangle, L, T, W, H)
+    Set sh = ws.Shapes.AddShape(msoShapeRoundedRectangle, L, T, W, H)
     sh.Name = nombre
     sh.Fill.ForeColor.RGB = rgbFill
+    sh.Fill.Transparency = 0.15
     sh.Line.Visible = msoFalse
     With sh.TextFrame2
         .VerticalAnchor = msoAnchorMiddle
-        .MarginLeft = 6
+        .MarginLeft = 8
         .TextRange.Text = texto
         .TextRange.Font.Size = 10
         .TextRange.Font.Bold = msoTrue
-        .TextRange.Font.Fill.ForeColor.RGB = RGB(0, 70, 130)
+        .TextRange.Font.Fill.ForeColor.RGB = LAB_TEAL
         .TextRange.ParagraphFormat.Alignment = msoAlignLeft
     End With
 End Sub
 
-' Obsoleto: el raton ya viene fijo en la plantilla
 Public Sub ElegirLogo()
-    MsgBox "La plantilla 4.0 ya incluye el boton del raton." & vbCrLf & _
-        "Reimporte Modulo_qPCR.bas y use la plantilla qPCR_plantilla.xlsx del repo." & vbCrLf & _
-        "Luego cierre y abra el .xlsm (macro InstalarBotones).", vbInformation, "qPCR"
+    MsgBox "Use la plantilla qPCR 4.1 del repo (raton + fondo ADN ya incluidos)." & vbCrLf & _
+        "Descargue qPCR_plantilla.xlsx + Modulo_qPCR.bas, guarde como .xlsm y vuelva a abrir.", vbInformation, "qPCR"
 End Sub
 
 Private Sub CrearBotonDecorado(ws As Worksheet, nombre As String, macro As String, _

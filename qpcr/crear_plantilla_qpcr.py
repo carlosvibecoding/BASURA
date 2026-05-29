@@ -33,6 +33,15 @@ from processor import (
 
 ROOT = Path(__file__).resolve().parent.parent
 OUTPUT = ROOT / "qPCR_plantilla.xlsx"
+ASSETS_DIR = Path(__file__).resolve().parent / "assets"
+ASSET_RATON_BTN = ASSETS_DIR / "raton_boton.png"
+ASSET_FONDO_RAW = ASSETS_DIR / "fondo_cabecera_raw.png"
+
+# Paleta laboratorio (sutil)
+LAB_BG = "F0F7FA"
+LAB_HEADER = "E0F2F1"
+LAB_ACCENT = "00695C"
+LAB_TEXT = "37474F"
 
 THIN = Side(style="thin", color="000000")
 BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
@@ -57,7 +66,7 @@ def write_instructions(ws) -> None:
     lines = [
         "PLANTILLA qPCR — ΔΔCt (PPIA y SYP)",
         "",
-        "1. Pegue el export del termociclador (StepOne) en la hoja RAW, desde la celda A1.",
+        "1. Pegue el export del termociclador (StepOne) en la hoja RAW, desde la celda A3.",
         "   Puede pegar varias exportaciones una debajo de otra; al pulsar «Procesar» se analiza todo el bloque.",
         "2. Importe la macro (solo la primera vez): Alt+F11 → Archivo → Importar archivo → qpcr/Modulo_qPCR.bas",
         "3. En la hoja RAW, pulse el botón «Procesar placa» (o ejecute la macro ProcesarPlaca).",
@@ -75,7 +84,7 @@ def write_instructions(ws) -> None:
         "  B22 — Nombres de grupos (ej: C=Controles;S=Suicidas;A=Alcohólicos)",
         "  Si B22 está vacío, se usan nombres automáticos según el prefijo (C, S, A…).",
         "  Las muestras pueden ser cualquier letra(s)+número: C10, S5, A12, ALC3…",
-        "  Logo: macro ElegirLogo o figura qPCR_logo en Instrucciones (B24 = ruta).",
+        "  Boton RATON (imagen fija en RAW): clic = procesar. Fondo molecular en cabecera.",
         "",
         "Cálculos (por cada gen control PPIA y SYP):",
         "  Paso 1: ΔCt = Ct mean (gen problema) − Ct mean (control)",
@@ -93,25 +102,29 @@ def write_instructions(ws) -> None:
     ws["B21"] = "C"
     ws["A22"] = "Nombres grupos (C=Controles;S=Suicidas;A=Alcohólicos):"
     ws["B22"] = ""
-    ws["A23"] = "Logo (opcional):"
-    ws["A24"] = "Ruta imagen o figura qPCR_logo en esta hoja (macro ElegirLogo):"
-    ws["B24"] = ""
+    ws["A23"] = "Boton procesar:"
+    ws["B23"] = "Clic en el raton de la hoja RAW = Procesar placa (macro 4.1)"
     ws.column_dimensions["B"].width = 55
 
 
 def setup_raw_sheet(ws) -> None:
     ws.title = "RAW"
-    ws["A1"] = ""
-    ws["A1"].fill = PatternFill("solid", fgColor="EDF2F7")
-    for col in range(1, 12):
-        ws.cell(row=2, column=col).fill = PatternFill("solid", fgColor="EDF2F7")
+    ws.sheet_view.showGridLines = True
+    fill_hdr = PatternFill("solid", fgColor=LAB_HEADER)
+    fill_data = PatternFill("solid", fgColor=LAB_BG)
+    for col in range(1, 18):
+        ws.cell(row=1, column=col).fill = fill_hdr
+        ws.cell(row=2, column=col).fill = fill_hdr
+    for row in range(3, 80):
+        for col in range(1, 18):
+            ws.cell(row=row, column=col).fill = fill_data
     ws["A3"] = "Pegue aqui el export StepOne (Sample Name, Target Name, Ct, Ct Mean, Ct SD...)"
-    ws["A3"].font = Font(italic=True, color="666666")
+    ws["A3"].font = Font(italic=True, color=LAB_TEXT, size=10)
     ws.column_dimensions["A"].width = 14
-    for col in range(2, 15):
+    for col in range(2, 16):
         ws.column_dimensions[get_column_letter(col)].width = 12
-    # Nota para botón: se añade con xlsxwriter en build_xlsm_button helper o manualmente
-    ws["A2"] = ""
+    ws.row_dimensions[1].height = 8
+    ws.row_dimensions[2].height = 52
 
 
 def write_results_headers(ws, goi_label: str) -> None:
@@ -363,7 +376,27 @@ def build_workbook(demo_raw: Path | None = None) -> Workbook:
         wb.create_sheet("GLOBAL")
 
     setup_datos_calc_sheets(wb)
+    embed_recursos_lab(wb)
     return wb
+
+
+def embed_recursos_lab(wb: Workbook) -> None:
+    """Hoja oculta Recursos: raton (boton) y fondo ADN para la macro."""
+    if "Recursos" in wb.sheetnames:
+        ws = wb["Recursos"]
+    else:
+        ws = wb.create_sheet("Recursos")
+    ws.sheet_state = "hidden"
+    if ASSET_RATON_BTN.is_file():
+        img = XlImage(str(ASSET_RATON_BTN))
+        img.width = 72
+        img.height = 72
+        ws.add_image(img, "A1")
+    if ASSET_FONDO_RAW.is_file():
+        bg = XlImage(str(ASSET_FONDO_RAW))
+        bg.width = 720
+        bg.height = 96
+        ws.add_image(bg, "D1")
 
 
 def setup_datos_calc_sheets(wb) -> None:

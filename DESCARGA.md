@@ -7,8 +7,8 @@ Repositorio: https://github.com/carlosvibecoding/BASURA
 | Archivo | Enlace directo |
 |---------|----------------|
 | **Plantilla Excel** | https://github.com/carlosvibecoding/BASURA/raw/main/qPCR_plantilla.xlsx |
-| **Macro VBA v4.0** | https://github.com/carlosvibecoding/BASURA/raw/main/qpcr/Modulo_qPCR.bas |
-| **Imagen raton** | https://github.com/carlosvibecoding/BASURA/raw/main/qpcr/assets/raton_procesar.png |
+| **Macro VBA v4.1** | https://github.com/carlosvibecoding/BASURA/raw/main/qpcr/Modulo_qPCR.bas |
+| **Plantilla (raton + fondo ADN)** | https://github.com/carlosvibecoding/BASURA/raw/main/qPCR_plantilla.xlsx |
 | **Todo el proyecto (ZIP)** | https://github.com/carlosvibecoding/BASURA/archive/refs/heads/main.zip |
 | **Procesar sin macro** | https://github.com/carlosvibecoding/BASURA/raw/main/qpcr/procesar_placa.py |
 
@@ -41,22 +41,20 @@ En **Instrucciones**:
 
 Muestras válidas: **letras + número** (`C10`, `S5`, `A12`, `ALC3`…). GLOBAL crea una tabla por cada prefijo distinto (no control).
 
-## Logo personalizado (macro 3.9)
+## Interfaz laboratorio (macro 4.1)
 
-Dos formas:
+- **Raton de laboratorio** (imagen fija, estilo mono): **clic = Procesar placa**.
+- **Fondo** con doble helice / detalle molecular (sutil, no invasivo).
+- Colores tipo laboratorio (verde azulado agua, fondo claro).
+- Todo va en `qPCR_plantilla.xlsx` (hoja oculta **Recursos**); no hay que elegir imagenes.
 
-1. **Macro `ElegirLogo`** (Alt+F8): elige un PNG/JPG y guarda la ruta en Instrucciones B24.
-2. **Manual:** en hoja **Instrucciones**, Insertar > Imagen, renombrar la figura a **`qPCR_logo`** (panel de selección).
+**Obligatorio:** plantilla nueva + macro 4.1 + guardar como `.xlsm` + cerrar y abrir Excel.
 
-Al abrir el libro o pulsar Procesar, el logo aparece a la **izquierda** del panel en RAW.
-
-## Botones en RAW (panel izquierdo)
-
-| Botón | Acción |
-|-------|--------|
-| **Procesar placa** | Calcula Resultados y GLOBAL |
-| **Limpiar datos** | Borra RAW, Datos, Calculos, Resultados y GLOBAL |
-| **Añadir placa abajo** | Marca dónde pegar otra placa; luego **Procesar** (lee todas) |
+| Control | Accion |
+|---------|--------|
+| **Raton** | Procesar placa |
+| **Limpiar** | Borra datos |
+| **+ Placa** | Marca donde pegar otra placa |
 
 ## Pegar datos
 
