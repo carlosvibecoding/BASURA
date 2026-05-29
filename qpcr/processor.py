@@ -225,11 +225,23 @@ def parse_raw_rows(rows: List[List[object]]) -> Tuple[str, Dict[str, Dict[str, W
             targets_seen.append(target)
 
     goi_candidates = [t for t in targets_seen if t not in HOUSEKEEPING]
-    if len(goi_candidates) != 1:
-        raise ValueError(
-            f"Se esperaba un único gen de interés (distinto de PPIA/SYP). Encontrados: {goi_candidates}"
-        )
-    goi = goi_candidates[0]
+    if not goi_candidates:
+        raise ValueError("No se detectó gen de interés (distinto de PPIA/SYP). Pegue export completo.")
+    if len(goi_candidates) == 1:
+        goi = goi_candidates[0]
+    else:
+        counts: dict[str, int] = {}
+        for row in rows[header_row + 1 :]:
+            if not row:
+                continue
+            target_col = cols.get("target", 2)
+            if target_col >= len(row):
+                continue
+            t = normalize_target(row[target_col])
+            if t in HOUSEKEEPING or t not in goi_candidates:
+                continue
+            counts[t] = counts.get(t, 0) + 1
+        goi = max(counts, key=counts.get)
 
     for sample in data:
         if goi in data[sample]:

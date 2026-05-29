@@ -1,10 +1,11 @@
 Attribute VB_Name = "Modulo_qPCR"
 ' qPCR - Pegar export StepOne COMPLETO en RAW (celda A1). Macro: ProcesarPlaca
-' Version 4.1 - Raton laboratorio mono + fondo molecular; tema lab
+' Version 4.2.1 - Fix RGS10 como GOI; grupos por prefijo (C, X, etc.) sin tocar UI
 
 Option Explicit
 
-Private Const MACRO_VER As String = "4.1"
+Private Const MACRO_VER As String = "4.2.1"
+Private Const COL_PANEL As Long = 15   ' O
 Private Const ASSET_RATON As String = "raton_boton.png"
 Private Const ASSET_FONDO As String = "fondo_cabecera_raw.png"
 Private Const LAB_BG As Long = 15790330      ' RGB(240,247,250)
@@ -112,47 +113,64 @@ Public Sub Auto_Open()
     Call InstalarBotones
 End Sub
 
-'--- Panel RAW estilo laboratorio: fondo ADN + raton mono (clic = Procesar) ---
+'--- Panel RAW: franja ADN fina A:N; controles en columna O (no tapa pegado) ---
 Public Sub InstalarBotones()
     Dim ws As Worksheet
-    Dim L0 As Single, T0 As Single, bL As Single, bT As Single, esp As Single
-    Dim anchoRaton As Single
     On Error Resume Next
     Set ws = ThisWorkbook.Worksheets("RAW")
     If ws Is Nothing Then Exit Sub
     Call EliminarPanelRAW(ws)
     On Error GoTo 0
     Call AplicarTemaLabRAW(ws)
-    ws.Range("A1:A2").Value = ""
-    ws.Range("A3").Value = "Pegue aqui el export StepOne (Sample Name, Target Name, Ct...)"
-    ws.Range("A3").Font.Italic = True
-    ws.Range("A3").Font.Color = RGB(55, 71, 79)
+    If Not RawTieneExport(ws) Then
+        ws.Range("A1").Value = "Pegue el export StepOne completo desde A1 (RGS + PPIA + SYP)"
+        With ws.Range("A1").Font
+            .Italic = True
+            .Color = RGB(55, 71, 79)
+            .Size = 10
+        End With
+    End If
+    Call DibujarDecoracionADN(ws)
     Call ColocarFondoLab(ws)
-    L0 = ws.Range("B1").Left + 4
-    T0 = ws.Range("B1").Top + 6
-    anchoRaton = ColocarBotonRaton(ws, L0, T0, 64, 64)
-    L0 = L0 + anchoRaton + 10
-    Call CrearBannerTexto(ws, "qPCR_banner", L0, T0 + 4, 240, 48, _
-        "qPCR laboratorio" & vbCrLf & "Clic en el raton para procesar  |  Datos en A3", LAB_HDR)
-    bL = L0 + 248
-    bT = T0 + 18
-    esp = 10
-    Call CrearBotonDecorado(ws, "btn_qPCR_Limpiar", "LimpiarDatos", "Limpiar", _
-        bL, bT, 82, 30, RGB(255, 255, 255), RGB(183, 28, 28))
-    Call CrearBotonDecorado(ws, "btn_qPCR_Anadir", "AnadirPlacaRAW", "+ Placa", _
-        bL + 82 + esp, bT, 82, 30, RGB(178, 223, 219), LAB_TEAL)
+    Call ColocarPanelDerecho(ws)
+    Call DecorarHojasLab
 End Sub
 
 Private Sub AplicarTemaLabRAW(ws As Worksheet)
-    ws.Rows(1).RowHeight = 8
-    ws.Rows(2).RowHeight = 56
-    ws.Range("A1:P2").Interior.Color = LAB_HDR
-    ws.Range("A3:P200").Interior.Color = LAB_BG
+    ws.Rows(1).RowHeight = 6
+    ws.Rows(2).RowHeight = 30
+    ws.Range("A1:N2").Interior.Color = LAB_HDR
+    ws.Range("O1:S2").Interior.Color = RGB(178, 223, 219)
+    ws.Range("A3:N500").Interior.Color = LAB_BG
+    ws.Columns(COL_PANEL).ColumnWidth = 2
+    ws.Columns(COL_PANEL + 1).ColumnWidth = 11
+    ws.Columns(COL_PANEL + 2).ColumnWidth = 11
 End Sub
 
+Private Function RawTieneExport(ws As Worksheet) As Boolean
+    Dim r As Long, t As String
+    Dim cS As Long, cT As Long, cCt As Long, cM As Long, cSD As Long
+    RawTieneExport = False
+    If BuscarCabeceraDesde(ws, 1, cS, cT, cCt, cM, cSD) > 0 Then RawTieneExport = True: Exit Function
+    For r = 1 To 25
+        t = LCase$(Trim$(CStr(ws.Cells(r, 1).Value2)))
+        If Len(t) = 0 Then GoTo Sig
+        If InStr(t, "pegue") > 0 Or InStr(t, "export stepone") > 0 Then GoTo Sig
+        If InStr(t, "block type") > 0 Or InStr(t, "chemistry") > 0 Then RawTieneExport = True: Exit Function
+        If InStr(t, "sample name") > 0 Then RawTieneExport = True: Exit Function
+        If Len(t) > 3 Then RawTieneExport = True: Exit Function
+Sig:
+    Next r
+End Function
+
 Private Sub EliminarPanelRAW(ws As Worksheet)
+    Dim sh As Shape
     On Error Resume Next
+    For Each sh In ws.Shapes
+        If Left$(sh.Name, 9) = "qPCR_dna_" Or Left$(sh.Name, 12) = "qPCR_fondo_" Then sh.Delete
+    Next sh
     ws.Shapes("qPCR_fondo_lab").Delete
+    ws.Shapes("qPCR_fondo_panel").Delete
     ws.Shapes("btn_raton_procesar").Delete
     ws.Shapes("btn_qPCR_Procesar").Delete
     ws.Shapes("btn_qPCR_Limpiar").Delete
@@ -174,41 +192,137 @@ Private Function RutaAsset(nombre As String) As String
 End Function
 
 Private Sub ColocarFondoLab(ws As Worksheet)
-    Dim wsR As Worksheet
-    Dim sh As Shape, pic As Shape
+    Dim pic As Shape
     Dim ruta As String
-    Dim L As Single, T As Single, W As Single
+    Dim L As Single, T As Single, W As Single, H As Single
     On Error Resume Next
     L = ws.Range("A1").Left
     T = ws.Range("A1").Top
-    W = ws.Range("M1").Left + ws.Range("M1").Width - L
-    Set wsR = ThisWorkbook.Worksheets("Recursos")
-    If Not wsR Is Nothing Then
-        If wsR.Shapes.Count >= 2 Then
-            Set sh = wsR.Shapes(2)
-            If sh.Type = msoPicture Or sh.Type = msoLinkedPicture Then
-                sh.Copy
-                ws.Paste
-                Set pic = ws.Shapes(ws.Shapes.Count)
-                pic.Name = "qPCR_fondo_lab"
-                pic.Left = L
-                pic.Top = T
-                pic.Width = W
-                pic.Height = ws.Rows(1).Height + ws.Rows(2).Height + 6
-                pic.Placement = xlFreeFloating
-                pic.ZOrder msoSendToBack
-                Exit Sub
-            End If
-        End If
-    End If
+    W = ws.Range("N1").Left + ws.Range("N1").Width - L
+    H = ws.Rows(1).Height + ws.Rows(2).Height + 2
     ruta = RutaAsset(ASSET_FONDO)
     If Len(ruta) > 0 And Dir(ruta, vbNormal) <> "" Then
-        Set pic = ws.Shapes.AddPicture(ruta, msoFalse, msoTrue, L, T, W, 70)
+        Set pic = ws.Shapes.AddPicture(ruta, msoFalse, msoTrue, L, T, W, H)
         pic.Name = "qPCR_fondo_lab"
         pic.Placement = xlFreeFloating
         pic.ZOrder msoSendToBack
     End If
     On Error GoTo 0
+End Sub
+
+' Panel compacto columna O: raton + botones (no invade A:N)
+Private Sub ColocarPanelDerecho(ws As Worksheet)
+    Dim L0 As Single, T0 As Single, bL As Single, bT As Single, esp As Single
+    Dim anchoRaton As Single
+    Dim colLetra As String
+    colLetra = "O"
+    Call ColocarFondoPanel(ws)
+    L0 = ws.Range(colLetra & "1").Left + 2
+    T0 = ws.Range(colLetra & "1").Top + 4
+    anchoRaton = ColocarBotonRaton(ws, L0, T0, 52, 52)
+    L0 = L0 + anchoRaton + 6
+    Call CrearBannerTexto(ws, "qPCR_banner", L0, T0 + 2, 168, 44, _
+        "qPCR lab" & vbCrLf & "Clic raton = procesar", LAB_HDR)
+    bL = L0
+    bT = T0 + 48
+    esp = 6
+    Call CrearBotonDecorado(ws, "btn_qPCR_Limpiar", "LimpiarDatos", "Limpiar", _
+        bL, bT, 78, 26, RGB(255, 255, 255), RGB(183, 28, 28))
+    Call CrearBotonDecorado(ws, "btn_qPCR_Anadir", "AnadirPlacaRAW", "+ Placa", _
+        bL + 78 + esp, bT, 78, 26, RGB(178, 223, 219), LAB_TEAL)
+End Sub
+
+Private Sub ColocarFondoPanel(ws As Worksheet)
+    Dim pic As Shape
+    Dim L As Single, T As Single, W As Single, H As Single
+    On Error Resume Next
+    L = ws.Range("O1").Left
+    T = ws.Range("O1").Top
+    W = ws.Range("S1").Left + ws.Range("S1").Width - L + 4
+    H = ws.Rows(1).Height + ws.Rows(2).Height + 56
+    Set pic = ws.Shapes.AddShape(msoShapeRoundedRectangle, L, T, W, H)
+    pic.Name = "qPCR_fondo_panel"
+    pic.Fill.ForeColor.RGB = RGB(224, 242, 241)
+    pic.Fill.Transparency = 0.08
+    pic.Line.ForeColor.RGB = LAB_TEAL
+    pic.Line.Weight = 0.5
+    pic.ZOrder msoSendToBack
+    On Error GoTo 0
+End Sub
+
+' Helices visibles en franja A1:N2 (no tapa filas de datos)
+Private Sub DibujarDecoracionADN(ws As Worksheet)
+    Dim i As Long, x As Single, y1 As Single, y2 As Single
+    Dim L As Single, T As Single, H As Single, W As Single
+    Dim ln As Shape, dot As Shape
+    L = ws.Range("A1").Left
+    T = ws.Range("A1").Top
+    W = ws.Range("N1").Left + ws.Range("N1").Width - L
+    H = ws.Rows(1).Height + ws.Rows(2).Height
+    If H < 20 Then H = 36
+    For i = 0 To 28
+        x = L + (W * i / 28)
+        y1 = T + H * 0.32 + (H * 0.14) * Sin(i * 0.65)
+        y2 = T + H * 0.58 + (H * 0.14) * Sin(i * 0.65 + 1.55)
+        Set ln = ws.Shapes.AddLine(x, y1, x + W / 40, y2)
+        ln.Name = "qPCR_dna_" & CStr(i)
+        ln.Line.ForeColor.RGB = RGB(0, 121, 107)
+        ln.Line.Transparency = 0.2
+        ln.Line.Weight = 1.5
+        ln.ZOrder msoSendToBack
+        If i Mod 3 = 0 Then
+            Set dot = ws.Shapes.AddShape(msoShapeOval, x - 2, y1 - 2, 4, 4)
+            dot.Name = "qPCR_dna_d" & CStr(i)
+            dot.Fill.ForeColor.RGB = RGB(128, 203, 196)
+            dot.Line.Visible = msoFalse
+            dot.ZOrder msoSendToBack
+        End If
+    Next i
+End Sub
+
+Private Sub DecorarHojasLab()
+    Dim nombres As Variant, i As Long
+    Dim ws As Worksheet
+    nombres = Array("Instrucciones", "Resultados", "GLOBAL", "Datos", "Calculos")
+    On Error Resume Next
+    For i = LBound(nombres) To UBound(nombres)
+        Set ws = ThisWorkbook.Worksheets(CStr(nombres(i)))
+        If Not ws Is Nothing Then
+            Call EliminarDecoracionHoja(ws)
+            ws.Range("A1:H1").Interior.Color = RGB(224, 242, 241)
+            ws.Cells(1, 1).Font.Color = RGB(0, 77, 64)
+            Call DibujarDecoracionADNEnHoja(ws, 8)
+        End If
+    Next i
+    On Error GoTo 0
+End Sub
+
+Private Sub EliminarDecoracionHoja(ws As Worksheet)
+    Dim sh As Shape
+    On Error Resume Next
+    For Each sh In ws.Shapes
+        If Left$(sh.Name, 11) = "qPCR_dna_h" Or Left$(sh.Name, 9) = "qPCR_dna_d" Then sh.Delete
+    Next sh
+    On Error GoTo 0
+End Sub
+
+Private Sub DibujarDecoracionADNEnHoja(ws As Worksheet, nSeg As Long)
+    Dim i As Long, L As Single, T As Single, W As Single, H As Single
+    Dim ln As Shape
+    L = ws.Range("A1").Left
+    T = ws.Range("A1").Top
+    W = ws.Range("H1").Left + ws.Range("H1").Width - L
+    H = ws.Rows(1).Height
+    If H < 12 Then H = 15
+    For i = 0 To nSeg
+        Set ln = ws.Shapes.AddLine(L + W * i / nSeg, T + H * 0.4, _
+            L + W * (i + 0.5) / nSeg, T + H * 0.65)
+        ln.Name = "qPCR_dna_h" & CStr(i)
+        ln.Line.ForeColor.RGB = RGB(0, 121, 107)
+        ln.Line.Transparency = 0.45
+        ln.Line.Weight = 1
+        ln.ZOrder msoSendToBack
+    Next i
 End Sub
 
 ' Raton de laboratorio (imagen fija en Recursos)
@@ -279,7 +393,7 @@ Private Sub CrearBannerTexto(ws As Worksheet, nombre As String, L As Single, T A
 End Sub
 
 Public Sub ElegirLogo()
-    MsgBox "Use la plantilla qPCR 4.1 del repo (raton + fondo ADN ya incluidos)." & vbCrLf & _
+    MsgBox "Plantilla qPCR " & MACRO_VER & ": raton + ADN ya incluidos." & vbCrLf & _
         "Descargue qPCR_plantilla.xlsx + Modulo_qPCR.bas, guarde como .xlsm y vuelva a abrir.", vbInformation, "qPCR"
 End Sub
 
@@ -318,7 +432,7 @@ Public Sub LimpiarDatos()
     ThisWorkbook.Worksheets("GLOBAL").Cells.Clear
     On Error GoTo 0
     With ThisWorkbook.Worksheets("RAW")
-        .Range("A3").Select
+        .Range("A1").Select
     End With
     Call InstalarBotones
     MsgBox "Datos borrados.", vbInformation, "qPCR"
@@ -813,14 +927,19 @@ Private Sub LeerTodoRAW(ws As Worksheet, orden As Collection)
 
     maxR = ws.UsedRange.Row + ws.UsedRange.Rows.Count - 1
     If maxR < 20 Then maxR = 400
+    maxR = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
+    If maxR < 50 Then maxR = 800
     r = 1
     Do While r <= maxR
         headerRow = BuscarCabeceraDesde(ws, r, cS, cT, cCt, cM, cSD)
-        If headerRow = 0 Then Exit Do
-        lastRow = UltimaFila(ws, headerRow, cS, cT)
-        bloque = LeerRango2D(ws, headerRow + 1, 1, lastRow, 30)
-        Call LeerBloque(bloque, cS, cT, cCt, cM, cSD, orden)
-        r = lastRow + 1
+        If headerRow = 0 Then
+            r = r + 1
+        Else
+            lastRow = UltimaFila(ws, headerRow, cS, cT)
+            bloque = LeerRango2D(ws, headerRow + 1, 1, lastRow, 30)
+            Call LeerBloque(bloque, cS, cT, cCt, cM, cSD, orden)
+            r = lastRow + 1
+        End If
     Loop
 End Sub
 
@@ -830,7 +949,7 @@ Private Function BuscarCabeceraDesde(ws As Worksheet, desdeFila As Long, _
     Dim r As Long, c As Long, t As String
     Dim okS As Boolean, okT As Boolean, okC As Boolean
   BuscarCabeceraDesde = 0
-    For r = desdeFila To desdeFila + 25
+    For r = desdeFila To desdeFila + 150
         cS = 0: cT = 0: cCt = 0: cM = 0: cSD = 0
         okS = False: okT = False: okC = False
         For c = 1 To 30
@@ -878,37 +997,64 @@ Sig:
 End Sub
 
 Private Function EsTargetIgnorar(ByVal t As String) As Boolean
-  ' Excluye controles, basura del export y muestras leidas por error como Target
+    ' No usar MuestraOK aqui: RGS10 cumple letras+numero y dejaba GOI vacio (regresion 3.8)
     Select Case UCase$(Trim$(t))
         Case "", "UNKNOWN", "UNDETERMINED", "N/A", "-", "NTC", "NEGATIVE", "POSITIVE", "TASK"
             EsTargetIgnorar = True
+        Case "FAM", "VIC", "CY5", "ROX", "SYBR", "MGB", "NFQ", "NFQ-MGB", "TAMRA"
+            EsTargetIgnorar = True
         Case Else
-            If MuestraOK(t) Then EsTargetIgnorar = True Else EsTargetIgnorar = False
+            EsTargetIgnorar = ExisteComoMuestraEnDatos(t)
     End Select
 End Function
 
-Private Function DetectarGOI() As String
+' Target ignorado solo si coincide con un Sample Name del RAW (C10 en columna Target por error)
+Private Function ExisteComoMuestraEnDatos(ByVal t As String) As Boolean
     Dim i As Long
-    Dim t As String
-    Dim unico As String
-    Dim n As Long
+    Dim u As String
+    u = UCase$(Trim$(t))
+    ExisteComoMuestraEnDatos = False
+    For i = 1 To G_N
+        If G_Sample(i) = u Then ExisteComoMuestraEnDatos = True: Exit Function
+    Next i
+End Function
 
-    unico = ""
+Private Function GenEnLista(ByRef arr() As String, ByVal n As Long, ByVal g As String) As Boolean
+    Dim i As Long
+    GenEnLista = False
+    For i = 1 To n
+        If arr(i) = g Then GenEnLista = True: Exit Function
+    Next i
+End Function
+
+' Un gen de interes = cualquier target que no sea PPIA/SYP (export en una sola tabla)
+Private Function DetectarGOI() As String
+    Dim i As Long, t As String, n As Long, j As Long
+    Dim cand(1 To 32) As String
+    Dim cnt(1 To 32) As Long
+    Dim best As Long, bestN As Long
+
     n = 0
     For i = 1 To G_N
         t = UCase$(Trim$(G_Target(i)))
-        If t = HK_PPIA Or t = HK_SYP Then GoTo Sig
-        If EsTargetIgnorar(t) Then GoTo Sig
-        If n = 0 Then
-            unico = t
-            n = 1
-        ElseIf unico <> t Then
-            DetectarGOI = ""
-            Exit Function
+        If t = HK_PPIA Or t = HK_SYP Or EsTargetIgnorar(t) Then GoTo Sig
+        If Not GenEnLista(cand, n, t) Then
+            n = n + 1
+            If n <= 32 Then cand(n) = t: cnt(n) = 1
+        Else
+            For j = 1 To n
+                If cand(j) = t Then cnt(j) = cnt(j) + 1: GoTo Sig
+            Next j
         End If
 Sig:
     Next i
-    If n = 1 Then DetectarGOI = unico
+    If n = 0 Then DetectarGOI = "": Exit Function
+    If n = 1 Then DetectarGOI = cand(1): Exit Function
+    best = 1: bestN = cnt(1)
+    For j = 2 To n
+        If cnt(j) > bestN Then best = j: bestN = cnt(j)
+    Next j
+    DetectarGOI = cand(best)
 End Function
 
 Private Function MsgGenesEncontrados() As String
@@ -933,9 +1079,9 @@ Sig:
             "1) Solo pego el bloque RGS (falta PPIA y SYP debajo)." & vbCrLf & _
             "2) Macro antigua: importe Modulo_qPCR.bas version " & MACRO_VER & "."
     Else
-        MsgGenesEncontrados = "Genes detectados: " & lista & vbCrLf & vbCrLf & _
-            "Debe haber UN solo gen de interes + PPIA + SYP." & vbCrLf & _
-            "Pegue el export COMPLETO del StepOne (los 3 bloques)."
+        MsgGenesEncontrados = "Varios genes tipo GOI: " & lista & vbCrLf & vbCrLf & _
+            "Se usara el mas frecuente. Revise que PPIA y SYP esten en Target Name." & vbCrLf & _
+            "Pegue el export COMPLETO del StepOne."
     End If
 End Function
 

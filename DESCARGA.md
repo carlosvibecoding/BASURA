@@ -7,8 +7,7 @@ Repositorio: https://github.com/carlosvibecoding/BASURA
 | Archivo | Enlace directo |
 |---------|----------------|
 | **Plantilla Excel** | https://github.com/carlosvibecoding/BASURA/raw/main/qPCR_plantilla.xlsx |
-| **Macro VBA v4.1** | https://github.com/carlosvibecoding/BASURA/raw/main/qpcr/Modulo_qPCR.bas |
-| **Plantilla (raton + fondo ADN)** | https://github.com/carlosvibecoding/BASURA/raw/main/qPCR_plantilla.xlsx |
+| **Macro VBA v4.2** | https://github.com/carlosvibecoding/BASURA/raw/main/qpcr/Modulo_qPCR.bas |
 | **Todo el proyecto (ZIP)** | https://github.com/carlosvibecoding/BASURA/archive/refs/heads/main.zip |
 | **Procesar sin macro** | https://github.com/carlosvibecoding/BASURA/raw/main/qpcr/procesar_placa.py |
 
@@ -16,11 +15,9 @@ Repositorio: https://github.com/carlosvibecoding/BASURA
 
 Al ejecutar **ProcesarPlaca**, si funciona debe decir:
 
-`Analisis completado: RGS12 (macro 4.0)`
+`Analisis completado: RGS12 (macro 4.2)`
 
-Tras importar la macro, abre el libro de nuevo (o ejecuta **InstalarBotones**) para ver los botones en RAW.
-
-Si el mensaje **no** incluye **(macro 3.2)**, importa de nuevo `Modulo_qPCR.bas`.
+Si el mensaje **no** incluye **(macro 4.2)**, importa de nuevo `Modulo_qPCR.bas` y vuelve a abrir el libro.
 
 ## Importar la macro (resumen)
 
@@ -30,7 +27,7 @@ Si el mensaje **no** incluye **(macro 3.2)**, importa de nuevo `Modulo_qPCR.bas`
 4. **Archivo** → **Importar archivo** → `Modulo_qPCR.bas`
 5. Guardar y cerrar el editor
 
-## Grupos de muestras (macro 3.8)
+## Grupos de muestras
 
 En **Instrucciones**:
 
@@ -41,18 +38,18 @@ En **Instrucciones**:
 
 Muestras válidas: **letras + número** (`C10`, `S5`, `A12`, `ALC3`…). GLOBAL crea una tabla por cada prefijo distinto (no control).
 
-## Interfaz laboratorio (macro 4.1)
+## Interfaz laboratorio (macro 4.2)
 
-- **Raton de laboratorio** (imagen fija, estilo mono): **clic = Procesar placa**.
-- **Fondo** con doble helice / detalle molecular (sutil, no invasivo).
-- Colores tipo laboratorio (verde azulado agua, fondo claro).
-- Todo va en `qPCR_plantilla.xlsx` (hoja oculta **Recursos**); no hay que elegir imagenes.
+- **Franja superior A1:N** con doble hélice ADN (fina, no tapa el pegado).
+- **Panel derecho (columna O)**: ratón de laboratorio (clic = procesar), **Limpiar**, **+ Placa**.
+- **No se escribe en A3** si ya hay datos pegados; el export va desde **A1**.
+- Detección del gen de interés en **tabla única** (RGS + PPIA + SYP juntos).
 
-**Obligatorio:** plantilla nueva + macro 4.1 + guardar como `.xlsm` + cerrar y abrir Excel.
+**Obligatorio:** plantilla nueva + macro 4.2 + guardar como `.xlsm` + cerrar y abrir Excel.
 
-| Control | Accion |
+| Control | Acción |
 |---------|--------|
-| **Raton** | Procesar placa |
+| **Ratón** | Procesar placa |
 | **Limpiar** | Borra datos |
 | **+ Placa** | Marca donde pegar otra placa |
 
@@ -60,30 +57,31 @@ Muestras válidas: **letras + número** (`C10`, `S5`, `A12`, `ALC3`…). GLOBAL 
 
 En **RAW**, celda **A1**, pegar el export **completo** del StepOne:
 
-- Bloque gen de interés (ej. RGS12)
-- Bloque **PPIA**
-- Bloque **SYP**
+- Gen de interés (ej. RGS10 / RGS12)
+- **PPIA**
+- **SYP**
 
-Varias placas: pegar una debajo de otra (o usar **Añadir placa abajo**).
+(en una sola tabla o en bloques apilados)
 
-## Hojas intermedias (macro 3.6)
+Varias placas: pegar una debajo de otra (o usar **+ Placa**).
+
+## Hojas intermedias
 
 - **Datos** — muestra × gen con Ct numéricos.
-- **Calculos** — solo valores (sin fórmulas Excel); PPIA y SYP en columnas separadas.
-- **Resultados** — bloque izquierdo PPIA, bloque derecho SYP (ambos con ΔCt / ΔΔCt / FC).
+- **Calculos** — valores VBA (PPIA y SYP en columnas separadas).
+- **Resultados** — bloque izquierdo PPIA, bloque derecho SYP (ΔCt / ΔΔCt / FC).
 
 ## Resultados
 
 - Fila **2**: promedio ΔCt de controles (C) en **Prom. dCt (C)** (PPIA col G, SYP col W).
-- Fila **3+**: muestras (sin repetir el promedio en cada fila).
-- **Rojo**: indeterminado, Ct SD > 0,3 o valor 2^(-ΔΔCt) extremo.
-- **Naranja**: solo un duplicado Ct válido (se usa ese valor / media del instrumento).
-- **Indeterminado**: ambos Ct "Undetermined" → sin cálculo ΔΔCt.
-- **GLOBAL**: muestras ordenadas C2, C3… S1, S2…
+- Fila **3+**: muestras.
+- **Rojo**: indeterminado, Ct SD > 0,3 o FC extremo.
+- **Naranja**: un solo duplicado Ct válido.
+- **GLOBAL**: tablas por grupo.
 
 ## Sin macro (alternativa)
 
 ```bash
-pip install openpyxl xlrd
+pip install openpyxl xlrd pillow
 python qpcr/procesar_placa.py "PLACA 2 RGS12 060526_data.xls" -o resultados.xlsx
 ```
