@@ -1,10 +1,10 @@
 Attribute VB_Name = "Modulo_qPCR"
 ' qPCR - Pegar export StepOne COMPLETO en RAW (celda A1). Macro: ProcesarPlaca
-' Version 4.2 - Fix GOI tabla unica; panel derecha; ADN visible; no tapar pegado
+' Version 4.2.1 - Fix RGS10 como GOI; grupos por prefijo (C, X, etc.) sin tocar UI
 
 Option Explicit
 
-Private Const MACRO_VER As String = "4.2"
+Private Const MACRO_VER As String = "4.2.1"
 Private Const COL_PANEL As Long = 15   ' O
 Private Const ASSET_RATON As String = "raton_boton.png"
 Private Const ASSET_FONDO As String = "fondo_cabecera_raw.png"
@@ -997,14 +997,26 @@ Sig:
 End Sub
 
 Private Function EsTargetIgnorar(ByVal t As String) As Boolean
+    ' No usar MuestraOK aqui: RGS10 cumple letras+numero y dejaba GOI vacio (regresion 3.8)
     Select Case UCase$(Trim$(t))
         Case "", "UNKNOWN", "UNDETERMINED", "N/A", "-", "NTC", "NEGATIVE", "POSITIVE", "TASK"
             EsTargetIgnorar = True
         Case "FAM", "VIC", "CY5", "ROX", "SYBR", "MGB", "NFQ", "NFQ-MGB", "TAMRA"
             EsTargetIgnorar = True
         Case Else
-            If MuestraOK(t) Then EsTargetIgnorar = True Else EsTargetIgnorar = False
+            EsTargetIgnorar = ExisteComoMuestraEnDatos(t)
     End Select
+End Function
+
+' Target ignorado solo si coincide con un Sample Name del RAW (C10 en columna Target por error)
+Private Function ExisteComoMuestraEnDatos(ByVal t As String) As Boolean
+    Dim i As Long
+    Dim u As String
+    u = UCase$(Trim$(t))
+    ExisteComoMuestraEnDatos = False
+    For i = 1 To G_N
+        If G_Sample(i) = u Then ExisteComoMuestraEnDatos = True: Exit Function
+    Next i
 End Function
 
 Private Function GenEnLista(ByRef arr() As String, ByVal n As Long, ByVal g As String) As Boolean
