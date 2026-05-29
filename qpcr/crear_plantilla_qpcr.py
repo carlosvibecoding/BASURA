@@ -22,8 +22,11 @@ from openpyxl.worksheet.datavalidation import DataValidation
 from processor import (
     SD_THRESHOLD,
     calculate_all,
+    default_group_label,
     goi_display_name,
+    parse_group_labels,
     parse_raw_rows,
+    sample_prefix,
     sample_sort_key,
 )
 
@@ -64,11 +67,17 @@ def write_instructions(ws) -> None:
         "  • Datos — tabla leída del RAW (Ct por muestra y gen)",
         "  • Calculos — ΔCt y promedio C con fórmulas Excel (auditable)",
         "  • Resultados — presentación (fórmulas enlazadas a Calculos)",
-        "  • GLOBAL — resumen por sujeto (controles | suicidas)",
+        "  • GLOBAL — resumen por grupo (controles + cada prefijo de muestra)",
+        "",
+        "CONFIGURACIÓN DE GRUPOS (editable):",
+        "  B21 — Prefijos control para promedio ΔCt (ej: C   o   C,CTRL)",
+        "  B22 — Nombres de grupos (ej: C=Controles;S=Suicidas;A=Alcohólicos)",
+        "  Si B22 está vacío, se usan nombres automáticos según el prefijo (C, S, A…).",
+        "  Las muestras pueden ser cualquier letra(s)+número: C10, S5, A12, ALC3…",
         "",
         "Cálculos (por cada gen control PPIA y SYP):",
         "  Paso 1: ΔCt = Ct mean (gen problema) − Ct mean (control)",
-        "  Paso 2: Promedio del paso 1 solo en muestras C (C1, C12, …)",
+        "  Paso 2: Promedio del paso 1 solo en muestras control (prefijo B21)",
         "  Paso 3: ΔΔCt = ΔCt − promedio del paso 2 (fijo para todas las muestras)",
         "  Paso 4: 2^(−ΔΔCt)",
     ]
@@ -76,17 +85,26 @@ def write_instructions(ws) -> None:
         cell = ws.cell(row=i, column=1, value=line)
         if i == 1:
             cell.font = Font(bold=True, size=14)
+    ws["A20"] = "CONFIGURACIÓN DE GRUPOS"
+    ws["A20"].font = Font(bold=True, size=12)
+    ws["A21"] = "Prefijos control (promedio ΔCt):"
+    ws["B21"] = "C"
+    ws["A22"] = "Nombres grupos (C=Controles;S=Suicidas;A=Alcohólicos):"
+    ws["B22"] = ""
+    ws.column_dimensions["B"].width = 55
 
 
 def setup_raw_sheet(ws) -> None:
     ws.title = "RAW"
-    ws["A1"] = "Pegue aquí el export del termociclador (Sample Name, Target Name, Ct, Ct Mean, Ct SD…)"
-    ws["A1"].font = Font(italic=True, color="666666")
+    ws["A1"] = "qPCR — Pegar export StepOne desde fila 3 (celda A3)"
+    ws["A1"].font = Font(bold=True, size=11, color="00468C")
+    ws["A3"] = "Pegue aquí el export (Sample Name, Target Name, Ct, Ct Mean, Ct SD…)"
+    ws["A3"].font = Font(italic=True, color="666666")
     ws.column_dimensions["A"].width = 14
     for col in range(2, 15):
         ws.column_dimensions[get_column_letter(col)].width = 12
     # Nota para botón: se añade con xlsxwriter en build_xlsm_button helper o manualmente
-    ws["N1"] = "← Importe Modulo_qPCR.bas y asigne la macro ProcesarPlaca a un botón aquí"
+    ws["N1"] = "Botones → (se crean al abrir el libro con la macro importada)"
     ws["N1"].font = Font(size=9, color="0070C0")
 
 
@@ -251,11 +269,27 @@ def _mean(reading) -> float | None:
     return None
 
 
-def write_global_sheet(ws, calcs, goi: str) -> None:
+def write_global_sheet(ws, calcs, goi: str, group_labels: dict | None = None) -> None:
     ws.title = "GLOBAL"
     goi_short = goi_display_name(goi)
-    controls = sorted([c for c in calcs if c.sample.startswith("C")], key=lambda x: sample_sort_key(x.sample))
-    suicides = sorted([c for c in calcs if c.sample.startswith("S")], key=lambda x: sample_sort_key(x.sample))
+    labels = group_labels or {}
+    control_prefixes = frozenset({"C"})
+
+    def group_title(pref: str) -> str:
+        return labels.get(pref, default_group_label(pref))
+
+    controls = sorted(
+        [c for c in calcs if sample_prefix(c.sample) in control_prefixes],
+        key=lambda x: sample_sort_key(x.sample, control_prefixes),
+    )
+    by_prefix: dict[str, list] = {}
+    for c in calcs:
+        pref = sample_prefix(c.sample)
+        if pref in control_prefixes:
+            continue
+        by_prefix.setdefault(pref, []).append(c)
+
+    fills = [GREEN_FILL, PatternFill("solid", fgColor="B4C6E7"), PatternFill("solid", fgColor="FFC000")]
 
     def write_table(start_col: int, title: str, title_fill, items):
         ws.merge_cells(
@@ -287,8 +321,13 @@ def write_global_sheet(ws, calcs, goi: str) -> None:
                 elif item.flag_single_rep:
                     cell.font = ORANGE_FONT
 
-    write_table(1, f"CONTROLES {goi_short} PFC", YELLOW_FILL, controls)
-    write_table(6, f"SUICIDAS {goi_short} PFC", GREEN_FILL, suicides)
+    write_table(1, f"{group_title('C')} {goi_short} PFC", YELLOW_FILL, controls)
+    col = 6
+    for i, pref in enumerate(sorted(by_prefix.keys())):
+        items = sorted(by_prefix[pref], key=lambda x: sample_sort_key(x.sample, control_prefixes))
+        fill = fills[i % len(fills)]
+        write_table(col, f"{group_title(pref)} {goi_short} PFC", fill, items)
+        col += 5
 
     for col in range(1, 11):
         ws.column_dimensions[get_column_letter(col)].width = 14

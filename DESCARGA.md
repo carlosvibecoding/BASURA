@@ -7,7 +7,7 @@ Repositorio: https://github.com/carlosvibecoding/BASURA
 | Archivo | Enlace directo |
 |---------|----------------|
 | **Plantilla Excel** | https://github.com/carlosvibecoding/BASURA/raw/main/qPCR_plantilla.xlsx |
-| **Macro VBA v3.7** | https://github.com/carlosvibecoding/BASURA/raw/main/qpcr/Modulo_qPCR.bas |
+| **Macro VBA v3.8** | https://github.com/carlosvibecoding/BASURA/raw/main/qpcr/Modulo_qPCR.bas |
 | **Todo el proyecto (ZIP)** | https://github.com/carlosvibecoding/BASURA/archive/refs/heads/main.zip |
 | **Procesar sin macro** | https://github.com/carlosvibecoding/BASURA/raw/main/qpcr/procesar_placa.py |
 
@@ -15,7 +15,7 @@ Repositorio: https://github.com/carlosvibecoding/BASURA
 
 Al ejecutar **ProcesarPlaca**, si funciona debe decir:
 
-`Analisis completado: RGS12 (macro 3.7)`
+`Analisis completado: RGS12 (macro 3.8)`
 
 Tras importar la macro, abre el libro de nuevo (o ejecuta **InstalarBotones**) para ver los botones en RAW.
 
@@ -29,7 +29,18 @@ Si el mensaje **no** incluye **(macro 3.2)**, importa de nuevo `Modulo_qPCR.bas`
 4. **Archivo** → **Importar archivo** → `Modulo_qPCR.bas`
 5. Guardar y cerrar el editor
 
-## Botones en RAW (macro 3.2)
+## Grupos de muestras (macro 3.8)
+
+En **Instrucciones**:
+
+| Celda | Uso |
+|-------|-----|
+| **B21** | Prefijos que son **control** para el promedio ΔCt (por defecto `C`). Varios: `C,CTRL` |
+| **B22** | Nombres para GLOBAL (opcional): `C=Controles;S=Suicidas;A=Alcohólicos` |
+
+Muestras válidas: **letras + número** (`C10`, `S5`, `A12`, `ALC3`…). GLOBAL crea una tabla por cada prefijo distinto (no control).
+
+## Botones en RAW
 
 | Botón | Acción |
 |-------|--------|

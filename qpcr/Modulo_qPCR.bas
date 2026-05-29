@@ -1,10 +1,11 @@
 Attribute VB_Name = "Modulo_qPCR"
 ' qPCR - Pegar export StepOne COMPLETO en RAW (celda A1). Macro: ProcesarPlaca
-' Version 3.7 - Promedio en col Prom dCt; cabeceras SYP alineadas (Q-Y)
+' Version 3.8 - Grupos configurables; botones decorados en RAW
 
 Option Explicit
 
-Private Const MACRO_VER As String = "3.7"
+Private Const MACRO_VER As String = "3.8"
+Private Const MAX_GRUPOS_GLOBAL As Long = 24
 Private Const COL_BLOQUE_SYP As Long = 17
 Private Const CT_MIN As Double = 5#
 Private Const CT_MAX As Double = 50#
@@ -31,6 +32,13 @@ Private G_EsIndet(1 To MAX_REG) As Boolean
 Private G_UnReplica(1 To MAX_REG) As Boolean
 Private G_HasMean(1 To MAX_REG) As Boolean
 Private G_N As Long
+Private G_ConfigCtrl As String
+Private G_ConfigMap As String
+Private mGlobN As Long
+Private mGlobPref(1 To MAX_GRUPOS_GLOBAL) As String
+Private mGlobS(1 To MAX_GRUPOS_GLOBAL) As Collection
+Private mGlobP(1 To MAX_GRUPOS_GLOBAL) As Collection
+Private mGlobY(1 To MAX_GRUPOS_GLOBAL) As Collection
 
 Public Sub ProcesarPlaca()
     Dim wsRaw As Worksheet
@@ -66,6 +74,7 @@ Public Sub ProcesarPlaca()
 
     Set orden = New Collection
     G_N = 0
+    Call CargarConfigGrupos
     Call LeerTodoRAW(wsRaw, orden)
 
     If G_N = 0 Then Err.Raise 5, , "No hay muestras validas."
@@ -98,28 +107,70 @@ Public Sub Auto_Open()
     Call InstalarBotones
 End Sub
 
-'--- Botones en hoja RAW ---
+'--- Botones decorados a la derecha (no tapar zona de pegado A3+) ---
 Public Sub InstalarBotones()
     Dim ws As Worksheet
+    Dim L As Single, T As Single, esp As Single
     On Error Resume Next
     Set ws = ThisWorkbook.Worksheets("RAW")
     If ws Is Nothing Then Exit Sub
     ws.Shapes("btn_qPCR_Procesar").Delete
     ws.Shapes("btn_qPCR_Limpiar").Delete
     ws.Shapes("btn_qPCR_Anadir").Delete
+    ws.Shapes("qPCR_panel_titulo").Delete
     On Error GoTo 0
-    Call CrearBotonFormulario(ws, "btn_qPCR_Procesar", "ProcesarPlaca", "Procesar placa", 8, 4, 128, 26)
-    Call CrearBotonFormulario(ws, "btn_qPCR_Limpiar", "LimpiarDatos", "Limpiar datos", 142, 4, 110, 26)
-    Call CrearBotonFormulario(ws, "btn_qPCR_Anadir", "AnadirPlacaRAW", "Anadir placa abajo", 258, 4, 128, 26)
+    ws.Rows(1).RowHeight = 18
+    ws.Rows(2).RowHeight = 34
+    ws.Range("A1").Value = "qPCR — Pegar export StepOne desde fila 3 (celda A3)"
+    ws.Range("A1").Font.Bold = True
+    ws.Range("A1").Font.Size = 11
+    ws.Range("A1").Font.Color = RGB(0, 70, 130)
+    L = ws.Range("N2").Left
+    T = ws.Range("N2").Top
+    esp = 6
+    Call CrearBotonDecorado(ws, "btn_qPCR_Procesar", "ProcesarPlaca", "Procesar placa", _
+        L, T, 118, 30, RGB(0, 120, 212), RGB(255, 255, 255))
+    Call CrearBotonDecorado(ws, "btn_qPCR_Limpiar", "LimpiarDatos", "Limpiar", _
+        L + 118 + esp, T, 88, 30, RGB(245, 245, 245), RGB(180, 0, 0))
+    Call CrearBotonDecorado(ws, "btn_qPCR_Anadir", "AnadirPlacaRAW", "+ Placa", _
+        L + 118 + esp + 88 + esp, T, 88, 30, RGB(255, 192, 0), RGB(50, 50, 50))
+    Call CrearEtiquetaPanel(ws, "qPCR_panel_titulo", "Acciones", L, T - 14, 300, 12)
 End Sub
 
-Private Sub CrearBotonFormulario(ws As Worksheet, nombre As String, macro As String, _
-    texto As String, L As Single, T As Single, W As Single, H As Single)
-    Dim btn As Shape
-    Set btn = ws.Shapes.AddFormControl(Type:=xlButtonControl, Left:=L, Top:=T, Width:=W, Height:=H)
-    btn.Name = nombre
-    btn.OnAction = macro
-    btn.TextFrame.Characters.Text = texto
+Private Sub CrearBotonDecorado(ws As Worksheet, nombre As String, macro As String, _
+    texto As String, L As Single, T As Single, W As Single, H As Single, _
+    rgbFill As Long, rgbText As Long)
+    Dim sh As Shape
+    Set sh = ws.Shapes.AddShape(msoShapeRoundedRectangle, L, T, W, H)
+    sh.Name = nombre
+    sh.OnAction = macro
+    sh.Fill.ForeColor.RGB = rgbFill
+    sh.Line.ForeColor.RGB = RGB(180, 180, 180)
+    sh.Line.Weight = 0.75
+    With sh.TextFrame2
+        .VerticalAnchor = msoAnchorMiddle
+        .MarginLeft = 4
+        .MarginRight = 4
+        .TextRange.Text = texto
+        .TextRange.Font.Size = 10
+        .TextRange.Font.Bold = msoTrue
+        .TextRange.Font.Fill.ForeColor.RGB = rgbText
+        .TextRange.ParagraphFormat.Alignment = msoAlignCenter
+    End With
+End Sub
+
+Private Sub CrearEtiquetaPanel(ws As Worksheet, nombre As String, texto As String, _
+    L As Single, T As Single, W As Single, H As Single)
+    Dim sh As Shape
+    Set sh = ws.Shapes.AddShape(msoShapeRectangle, L, T, W, H)
+    sh.Name = nombre
+    sh.Fill.Visible = msoFalse
+    sh.Line.Visible = msoFalse
+    With sh.TextFrame2
+        .TextRange.Text = texto
+        .TextRange.Font.Size = 8
+        .TextRange.Font.Fill.ForeColor.RGB = RGB(100, 100, 100)
+    End With
 End Sub
 
 '--- Borra RAW, Resultados y GLOBAL ---
@@ -135,8 +186,7 @@ Public Sub LimpiarDatos()
     ThisWorkbook.Worksheets("GLOBAL").Cells.Clear
     On Error GoTo 0
     With ThisWorkbook.Worksheets("RAW")
-        .Range("A1").Value = "Pegue aqui el export COMPLETO del StepOne (A1). Luego: Procesar placa."
-        .Range("A1").Font.Italic = True
+        .Range("A3").Select
     End With
     Call InstalarBotones
     MsgBox "Datos borrados.", vbInformation, "qPCR"
@@ -259,16 +309,168 @@ Private Function NormalizarGen(ByVal t As String) As String
     NormalizarGen = u
 End Function
 
+'--- Configuracion de grupos (hoja Instrucciones B21-B22) ---
+Private Sub CargarConfigGrupos()
+    Dim ws As Worksheet
+    Dim ctrl As String, mapa As String
+    On Error Resume Next
+    Set ws = ThisWorkbook.Worksheets("Instrucciones")
+    On Error GoTo 0
+    ctrl = "C"
+    mapa = ""
+    If Not ws Is Nothing Then
+        If Trim$(CStr(ws.Range("B21").Value2)) <> "" Then ctrl = Trim$(CStr(ws.Range("B21").Value2))
+        If Trim$(CStr(ws.Range("B22").Value2)) <> "" Then mapa = Trim$(CStr(ws.Range("B22").Value2))
+    End If
+    G_ConfigCtrl = PrefijosAPatron(ctrl)
+    G_ConfigMap = MapaEtiquetasAPatron(mapa)
+    If G_ConfigCtrl = "||" Then G_ConfigCtrl = "|C|"
+End Sub
+
+Private Function PrefijosAPatron(ByVal lista As String) As String
+    Dim partes() As String, i As Long, p As String, r As String
+    r = "|"
+    partes = Split(Replace$(lista, " ", ""), ",")
+    For i = LBound(partes) To UBound(partes)
+        p = UCase$(Trim$(partes(i)))
+        If Len(p) > 0 Then r = r & p & "|"
+    Next i
+    If r = "|" Then r = "|C|"
+    PrefijosAPatron = r
+End Function
+
+Private Function MapaEtiquetasAPatron(ByVal mapa As String) As String
+    Dim partes() As String, i As Long, kv() As String, r As String
+    r = ""
+    If Len(Trim$(mapa)) = 0 Then MapaEtiquetasAPatron = "": Exit Function
+    mapa = Replace$(mapa, vbCrLf, ";")
+    mapa = Replace$(mapa, ",", ";")
+    partes = Split(mapa, ";")
+    For i = LBound(partes) To UBound(partes)
+        If InStr(partes(i), "=") > 0 Then
+            kv = Split(partes(i), "=")
+            If UBound(kv) >= 1 Then
+                r = r & "|" & UCase$(Trim$(kv(0))) & "=" & Trim$(kv(1)) & "|"
+            End If
+        End If
+    Next i
+    MapaEtiquetasAPatron = r
+End Function
+
+Private Function PrefijoMuestra(ByVal s As String) As String
+    Dim u As String, i As Long, c As String
+    u = UCase$(Trim$(s))
+    PrefijoMuestra = ""
+    For i = 1 To Len(u)
+        c = Mid$(u, i, 1)
+        If c >= "0" And c <= "9" Then Exit For
+        PrefijoMuestra = PrefijoMuestra & c
+    Next i
+End Function
+
+Private Function NumeroMuestra(ByVal s As String) As Long
+    Dim u As String, i As Long
+    u = UCase$(Trim$(s))
+    For i = 1 To Len(u)
+        If Mid$(u, i, 1) >= "0" And Mid$(u, i, 1) <= "9" Then
+            NumeroMuestra = CLng(Val(Mid$(u, i)))
+            Exit Function
+        End If
+    Next i
+End Function
+
+Private Function EsMuestraControl(ByVal s As String) As Boolean
+    Dim pref As String
+    pref = PrefijoMuestra(s)
+    If pref = "" Then Exit Function
+    EsMuestraControl = (InStr(1, G_ConfigCtrl, "|" & pref & "|", vbTextCompare) > 0)
+End Function
+
+Private Function EtiquetaGrupo(ByVal pref As String) As String
+    Dim clave As String, p As Long, q As Long, u As String
+    u = UCase$(Trim$(pref))
+    clave = "|" & u & "="
+    p = InStr(1, G_ConfigMap, clave, vbTextCompare)
+    If p > 0 Then
+        q = InStr(p + Len(clave), G_ConfigMap, "|")
+        If q > p Then
+            EtiquetaGrupo = Mid$(G_ConfigMap, p + Len(clave), q - p - Len(clave))
+            Exit Function
+        End If
+    End If
+    EtiquetaGrupo = EtiquetaGrupoAuto(u)
+End Function
+
+Private Function EtiquetaGrupoAuto(ByVal pref As String) As String
+    Select Case pref
+        Case "C": EtiquetaGrupoAuto = "CONTROLES"
+        Case "S": EtiquetaGrupoAuto = "SUJETOS"
+        Case "A": EtiquetaGrupoAuto = "ALCOHOLICOS"
+        Case "T": EtiquetaGrupoAuto = "TEST"
+        Case Else: EtiquetaGrupoAuto = "GRUPO " & pref
+    End Select
+End Function
+
+Private Function TituloPromedioControles() As String
+  Dim p As Long
+    p = InStr(2, G_ConfigCtrl, "|")
+    If p > 2 Then
+        TituloPromedioControles = "PROMEDIO " & EtiquetaGrupo(Mid$(G_ConfigCtrl, 2, p - 2))
+    Else
+        TituloPromedioControles = "PROMEDIO controles"
+    End If
+End Function
+
 Private Function MuestraOK(ByVal s As String) As Boolean
-    Dim p As Long
     Dim u As String
     u = UCase$(Trim$(s))
     If Len(u) < 2 Then Exit Function
-    If Left$(u, 1) <> "C" And Left$(u, 1) <> "S" Then Exit Function
-    For p = 2 To Len(u)
-        If Mid$(u, p, 1) < "0" Or Mid$(u, p, 1) > "9" Then Exit Function
-    Next p
+    If Len(PrefijoMuestra(u)) < 1 Then Exit Function
+    If NumeroMuestra(u) < 1 Then Exit Function
     MuestraOK = True
+End Function
+
+Private Sub ResetGruposGlobales()
+    Dim i As Long
+    mGlobN = 0
+    For i = 1 To MAX_GRUPOS_GLOBAL
+        Set mGlobS(i) = Nothing
+        Set mGlobP(i) = Nothing
+        Set mGlobY(i) = Nothing
+        mGlobPref(i) = ""
+    Next i
+End Sub
+
+Private Function IdxGrupoGlobal(ByVal pref As String) As Long
+    Dim i As Long
+    For i = 1 To mGlobN
+        If mGlobPref(i) = pref Then IdxGrupoGlobal = i: Exit Function
+    Next i
+    If mGlobN >= MAX_GRUPOS_GLOBAL Then IdxGrupoGlobal = 0: Exit Function
+    mGlobN = mGlobN + 1
+    IdxGrupoGlobal = mGlobN
+    mGlobPref(mGlobN) = pref
+    Set mGlobS(mGlobN) = New Collection
+    Set mGlobP(mGlobN) = New Collection
+    Set mGlobY(mGlobN) = New Collection
+End Function
+
+Private Sub AnadirGlobalNoControl(ByVal sample As String, ByVal pref As String, ByVal vP As Variant, ByVal vY As Variant)
+    Dim ix As Long
+    ix = IdxGrupoGlobal(pref)
+    If ix < 1 Then Exit Sub
+    mGlobS(ix).Add sample
+    mGlobP(ix).Add vP
+    mGlobY(ix).Add vY
+End Sub
+
+Private Function ColorGrupoGlobal(ByVal ix As Long) As Long
+    Select Case ((ix - 1) Mod 4)
+        Case 0: ColorGrupoGlobal = RGB(146, 208, 80)
+        Case 1: ColorGrupoGlobal = RGB(180, 198, 231)
+        Case 2: ColorGrupoGlobal = RGB(255, 192, 0)
+        Case Else: ColorGrupoGlobal = RGB(200, 230, 201)
+    End Select
 End Function
 
 Private Function ValTxt(bloque As Variant, f As Long, col As Long) As String
@@ -618,7 +820,7 @@ Private Function PromedioC(dCt() As Double, n As Long, orden As Collection, goi 
     Dim ixG As Long
     suma = 0#: cnt = 0
     For i = 1 To n
-        If Left$(orden(i), 1) <> "C" Then GoTo SigP
+        If Not EsMuestraControl(CStr(orden(i))) Then GoTo SigP
         ixG = BuscarIdx(orden(i), goi)
         If ixG > 0 Then
             If EsIndetIdx(ixG) Then GoTo SigP
@@ -636,16 +838,17 @@ SigP:
 End Function
 
 Private Function OrdenClaveMuestra(s As String) As Long
-    Dim n As Long
-    n = 0
-    On Error Resume Next
-    n = CLng(Val(Mid$(s, 2)))
-    On Error GoTo 0
-    If Left$(s, 1) = "C" Then
-        OrdenClaveMuestra = n
+    Dim n As Long, ordP As Long
+    Dim pref As String
+    n = NumeroMuestra(s)
+    pref = PrefijoMuestra(s)
+    If Len(pref) < 1 Then pref = "Z"
+    If EsMuestraControl(s) Then
+        ordP = 100 + Asc(Left$(pref, 1))
     Else
-        OrdenClaveMuestra = 1000000 + n
+        ordP = 1000 + Asc(Left$(pref, 1))
     End If
+    OrdenClaveMuestra = ordP * 10000 + n
 End Function
 
 Private Sub OrdenarMuestras(orden As Collection)
@@ -810,7 +1013,6 @@ Private Sub EscribirTodo(ws As Worksheet, wsG As Worksheet, orden As Collection,
     Dim avgP As Double, avgS As Double
     Dim tit As String
     Dim cS As Collection, cP As Collection, cY As Collection
-    Dim sS As Collection, sP As Collection, sY As Collection
 
     Call OrdenarMuestras(orden)
 
@@ -821,7 +1023,7 @@ Private Sub EscribirTodo(ws As Worksheet, wsG As Worksheet, orden As Collection,
     Dim okCalc() As Boolean
     ReDim okCalc(1 To n)
     Set cS = New Collection: Set cP = New Collection: Set cY = New Collection
-    Set sS = New Collection: Set sP = New Collection: Set sY = New Collection
+    Call ResetGruposGlobales
 
     Call Cabeceras(ws, goi)
 
@@ -856,18 +1058,19 @@ Private Sub EscribirTodo(ws As Worksheet, wsG As Worksheet, orden As Collection,
                 (2 ^ (-(dP(i) - avgP)) > FC_EXTREMO Or 2 ^ (-(dP(i) - avgP)) < 1# / FC_EXTREMO))
             Call FilaCalc(ws, rowOut, COL_BLOQUE_SYP, sample, goi, ixG, dS(i), avgS, _
                 (2 ^ (-(dS(i) - avgS)) > FC_EXTREMO Or 2 ^ (-(dS(i) - avgS)) < 1# / FC_EXTREMO))
-            If Left$(sample, 1) = "C" Then
+            If EsMuestraControl(sample) Then
                 cS.Add sample: cP.Add 2 ^ (-(dP(i) - avgP)): cY.Add 2 ^ (-(dS(i) - avgS))
-            ElseIf Left$(sample, 1) = "S" Then
-                sS.Add sample: sP.Add 2 ^ (-(dP(i) - avgP)): sY.Add 2 ^ (-(dS(i) - avgS))
+            Else
+                Call AnadirGlobalNoControl(sample, PrefijoMuestra(sample), _
+                    2 ^ (-(dP(i) - avgP)), 2 ^ (-(dS(i) - avgS)))
             End If
         Else
             Call FilaIndeterminado(ws, rowOut, 1, sample, goi, ixG)
             Call FilaIndeterminado(ws, rowOut, COL_BLOQUE_SYP, sample, goi, ixG)
-            If Left$(sample, 1) = "C" Then
+            If EsMuestraControl(sample) Then
                 cS.Add sample: cP.Add "Indeterminado": cY.Add "Indeterminado"
-            ElseIf Left$(sample, 1) = "S" Then
-                sS.Add sample: sP.Add "Indeterminado": sY.Add "Indeterminado"
+            Else
+                Call AnadirGlobalNoControl(sample, PrefijoMuestra(sample), "Indeterminado", "Indeterminado")
             End If
         End If
         rowOut = rowOut + 2
@@ -883,8 +1086,23 @@ SigO:
         rowOut = rowOut + 2
     Next i
 
-    Call TablaOrdenada(wsG, 1, "CONTROLES " & tit & " PFC", RGB(255, 255, 0), cS, cP, cY)
-    Call TablaOrdenada(wsG, 6, "SUICIDAS " & tit & " PFC", RGB(146, 208, 80), sS, sP, sY)
+    Call EscribirGlobalDinamico(wsG, tit, cS, cP, cY)
+End Sub
+
+Private Sub EscribirGlobalDinamico(wsG As Worksheet, tit As String, _
+    cS As Collection, cP As Collection, cY As Collection)
+    Dim i As Long, col As Long
+    Dim titCtrl As String
+    titCtrl = EtiquetaGrupo(Mid$(G_ConfigCtrl, 2, InStr(2, G_ConfigCtrl, "|") - 2))
+    If titCtrl = "" Then titCtrl = "CONTROLES"
+    Call TablaOrdenada(wsG, 1, UCase$(titCtrl) & " " & tit & " PFC", RGB(255, 255, 0), cS, cP, cY)
+    col = 6
+    For i = 1 To mGlobN
+        Call TablaOrdenada(wsG, col, UCase$(EtiquetaGrupo(mGlobPref(i))) & " " & tit & " PFC", _
+            ColorGrupoGlobal(i), mGlobS(i), mGlobP(i), mGlobY(i))
+        col = col + 5
+        If col > 26 Then Exit For
+    Next i
 End Sub
 
 Private Sub Cabeceras(ws As Worksheet, goi As String)
@@ -897,6 +1115,8 @@ Private Sub Cabeceras(ws As Worksheet, goi As String)
         ws.Cells(1, k + COL_BLOQUE_SYP).Value = h(k)
         ws.Cells(1, k + COL_BLOQUE_SYP).Font.Bold = True
     Next k
+    ws.Cells(1, 7).Value = "Prom. dCt (" & Mid$(G_ConfigCtrl, 2, InStr(2, G_ConfigCtrl, "|") - 2) & ")"
+    ws.Cells(1, COL_BLOQUE_SYP + 6).Value = ws.Cells(1, 7).Value
     ws.Rows(2).Font.Bold = True
     ws.Rows(2).Interior.Color = RGB(242, 242, 242)
     On Error Resume Next
@@ -911,7 +1131,7 @@ Private Sub EscribirFilaPromedios(ws As Worksheet, avgP As Double, avgS As Doubl
     Dim cPromP As Long, cPromS As Long
     cPromP = 7
     cPromS = COL_BLOQUE_SYP + 6
-    ws.Cells(2, 1).Value = "PROMEDIO controles (C)"
+    ws.Cells(2, 1).Value = TituloPromedioControles()
     ws.Cells(2, cPromP).Value = avgP
     ws.Cells(2, cPromS).Value = avgS
     ws.Cells(2, cPromP).NumberFormat = "0.000000"

@@ -12,7 +12,7 @@ from typing import Dict, List, Optional, Tuple
 HOUSEKEEPING = frozenset({"PPIA", "SYP"})
 SD_THRESHOLD = 0.3
 FC_EXTREME = 1000.0
-SAMPLE_RE = re.compile(r"^[CS]\d+$", re.IGNORECASE)
+SAMPLE_RE = re.compile(r"^[A-Za-z]+\d+$", re.IGNORECASE)
 INDET_RE = re.compile(r"undetermin|indetermin", re.I)
 
 
@@ -55,11 +55,43 @@ def parse_ct_value(ct: object) -> Optional[float]:
     return v if 5 <= v <= 50 else None
 
 
-def sample_sort_key(sample: str) -> tuple:
-    s = sample.upper()
-    prefix = 0 if s.startswith("C") else 1
-    num = int(s[1:]) if s[1:].isdigit() else 0
-    return (prefix, num)
+def sample_prefix(sample: str) -> str:
+    m = re.match(r"^([A-Za-z]+)", normalize_sample(sample), re.I)
+    return m.group(1).upper() if m else ""
+
+
+def sample_number(sample: str) -> int:
+    m = re.search(r"(\d+)$", normalize_sample(sample))
+    return int(m.group(1)) if m else 0
+
+
+def parse_group_labels(text: str) -> dict[str, str]:
+    """Parsea 'C=Controles;S=Suicidas' -> dict."""
+    labels: dict[str, str] = {}
+    if not text or not str(text).strip():
+        return labels
+    for part in re.split(r"[;\n,]+", str(text)):
+        part = part.strip()
+        if "=" in part:
+            k, v = part.split("=", 1)
+            labels[k.strip().upper()] = v.strip()
+    return labels
+
+
+def default_group_label(prefix: str) -> str:
+    return {
+        "C": "CONTROLES",
+        "S": "SUJETOS",
+        "A": "ALCOHOLICOS",
+    }.get(prefix.upper(), f"GRUPO {prefix.upper()}")
+
+
+def sample_sort_key(sample: str, control_prefixes: frozenset[str] | None = None) -> tuple:
+    if control_prefixes is None:
+        control_prefixes = frozenset({"C"})
+    pref = sample_prefix(sample)
+    tier = 0 if pref in control_prefixes else 1
+    return (tier, ord(pref[0]) if pref else 0, sample_number(sample))
 
 
 @dataclass
@@ -262,9 +294,17 @@ def calculate_all(
             goi_r.is_indeterminate,
         )
 
-    c_samples = [s for s in sample_order if s.startswith("C") and s in dct_ppi]
+    control_prefixes = frozenset({"C"})
+    c_samples = [
+        s
+        for s in sample_order
+        if sample_prefix(s) in control_prefixes and s in dct_ppi
+    ]
     if not c_samples:
-        raise ValueError("No hay muestras control (C…) para calcular el promedio del paso 2.")
+        raise ValueError(
+            "No hay muestras control para el promedio del paso 2. "
+            "Defina prefijos en Instrucciones B21 (por defecto: C)."
+        )
 
     avg_ppi = statistics.mean(dct_ppi[s] for s in c_samples)
     avg_syp = statistics.mean(dct_syp[s] for s in c_samples)
