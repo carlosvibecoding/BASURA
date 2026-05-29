@@ -1,19 +1,16 @@
 Attribute VB_Name = "Modulo_qPCR"
 ' qPCR - Pegar export StepOne COMPLETO en RAW (celda A1). Macro: ProcesarPlaca
-' Version 4.3 - Tema laboratorio: ADN en PNG (sin helices VBA), panel O pulido.
+' Version 4.3.1 - Hebras ADN solo en el banner de RAW (de la plantilla, sin duplicar);
+'               sin decoracion en las demas hojas; GLOBAL/Resultados conservan colores.
 '               Logica de calculo y deteccion de genes SIN cambios (igual que 4.2.1).
 
 Option Explicit
 
-Private Const MACRO_VER As String = "4.3"
+Private Const MACRO_VER As String = "4.3.1"
 Private Const COL_PANEL As Long = 15   ' O
 Private Const ASSET_RATON As String = "raton_boton.png"
-Private Const ASSET_FONDO As String = "fondo_cabecera_raw.png"
-Private Const ASSET_ESQUINA As String = "dna_esquina.png"
-' Indices fijos de imagenes en hoja oculta Recursos (ver crear_plantilla_qpcr.py)
+' Indice fijo del raton en la hoja oculta Recursos (ver crear_plantilla_qpcr.py)
 Private Const REC_RATON As Long = 1
-Private Const REC_FONDO As Long = 2
-Private Const REC_ESQUINA As Long = 3
 Private Const LAB_BG As Long = 15790330      ' RGB(240,247,250)
 Private Const LAB_HDR As Long = 14737632   ' RGB(224,242,241)
 Private Const LAB_TEAL As Long = 6908262    ' RGB(0,105,92)
@@ -119,7 +116,8 @@ Public Sub Auto_Open()
     Call InstalarBotones
 End Sub
 
-'--- Panel RAW: franja ADN (banner PNG) en A:N; controles en columna O (no tapa pegado) ---
+'--- Panel RAW: controles en columna O (no tapa pegado). El banner ADN de la
+'    cabecera ya viene en la plantilla; la macro NO lo vuelve a poner (no duplica). ---
 Public Sub InstalarBotones()
     Dim ws As Worksheet
     On Error Resume Next
@@ -136,9 +134,8 @@ Public Sub InstalarBotones()
             .Size = 10
         End With
     End If
-    Call ColocarFondoLab(ws)
     Call ColocarPanelDerecho(ws)
-    Call DecorarHojasLab
+    Call LimpiarDecoracionHojas
 End Sub
 
 Private Sub AplicarTemaLabRAW(ws As Worksheet)
@@ -198,15 +195,6 @@ Private Function RutaAsset(nombre As String) As String
     RutaAsset = p & "qpcr" & sep & "assets" & sep & nombre
     If Dir(RutaAsset, vbNormal) = "" Then RutaAsset = p & nombre
 End Function
-
-Private Sub ColocarFondoLab(ws As Worksheet)
-    Dim L As Single, T As Single, W As Single, H As Single
-    L = ws.Range("A1").Left
-    T = ws.Range("A1").Top
-    W = ws.Range("N1").Left + ws.Range("N1").Width - L
-    H = ws.Rows(1).Height + ws.Rows(2).Height + 2
-    Call ColocarImagen(ws, REC_FONDO, ASSET_FONDO, "qPCR_fondo_lab", L, T, W, H, True)
-End Sub
 
 ' Coloca una imagen: primero desde Recursos (incrustada), luego desde archivo.
 Private Function ColocarImagen(ws As Worksheet, idxRecurso As Long, archivo As String, _
@@ -314,33 +302,19 @@ Private Sub ColocarFondoPanel(ws As Worksheet)
     On Error GoTo 0
 End Sub
 
-' Tema molecular sutil en las demas hojas: cabecera verde agua + esquina ADN (PNG)
-Private Sub DecorarHojasLab()
+' Quita decoraciones ADN antiguas de las demas hojas (no anade nada ni cambia colores).
+' Asi los titulos de GLOBAL (amarillo controles / verde grupos) y de Resultados
+' conservan su color original sin que nada los tape.
+Private Sub LimpiarDecoracionHojas()
     Dim nombres As Variant, i As Long
     Dim ws As Worksheet
-    Dim colEsq As Long
     nombres = Array("Instrucciones", "Resultados", "GLOBAL", "Datos", "Calculos")
     On Error Resume Next
     For i = LBound(nombres) To UBound(nombres)
         Set ws = ThisWorkbook.Worksheets(CStr(nombres(i)))
-        If Not ws Is Nothing Then
-            Call EliminarDecoracionHoja(ws)
-            ws.Range("A1:H1").Interior.Color = RGB(224, 242, 241)
-            ws.Cells(1, 1).Font.Color = RGB(0, 77, 64)
-            If ws.Rows(1).Height < 18 Then ws.Rows(1).RowHeight = 18
-            colEsq = 8
-            If CStr(nombres(i)) = "Instrucciones" Then colEsq = 4
-            Call ColocarEsquinaADN(ws, colEsq)
-        End If
+        If Not ws Is Nothing Then Call EliminarDecoracionHoja(ws)
     Next i
     On Error GoTo 0
-End Sub
-
-Private Sub ColocarEsquinaADN(ws As Worksheet, col As Long)
-    Dim L As Single, T As Single
-    L = ws.Cells(1, col).Left
-    T = ws.Cells(1, col).Top
-    Call ColocarImagen(ws, REC_ESQUINA, ASSET_ESQUINA, "qPCR_esquina", L, T, 28, 28, False)
 End Sub
 
 Private Sub EliminarDecoracionHoja(ws As Worksheet)

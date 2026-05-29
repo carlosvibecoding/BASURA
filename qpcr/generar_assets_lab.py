@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Genera imágenes de laboratorio / biología molecular para la plantilla qPCR.
+"""Genera el banner de laboratorio / biología molecular para la cabecera de RAW.
 
 Produce, con anti-aliasing (supersampling + LANCZOS):
   - fondo_cabecera_raw.png : banner doble hélice nítido para la cabecera de RAW
-  - dna_esquina.png        : motivo molecular transparente para esquinas de hojas
+
+(No se generan motivos para otras hojas: las hebras solo van en RAW.)
 
 Uso:  python3 qpcr/generar_assets_lab.py
 """
@@ -149,39 +150,9 @@ def make_banner() -> None:
     print(f"Wrote {out} ({out.stat().st_size} bytes, {img.size[0]}x{img.size[1]})")
 
 
-def make_corner() -> None:
-    """Motivo molecular vertical, transparente, para esquina de cabeceras."""
-    w, h = 132, 132
-    img = Image.new("RGBA", (w * SS, h * SS), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img, "RGBA")
-
-    # Hélice vertical: intercambiamos ejes dibujando en horizontal y rotando
-    tmp = Image.new("RGBA", (h * SS, w * SS), (0, 0, 0, 0))
-    td = ImageDraw.Draw(tmp, "RGBA")
-    _double_helix(
-        td,
-        x0=6 * SS,
-        x1=h * SS - 6 * SS,
-        y_mid=w * SS * 0.5,
-        amp=w * SS * 0.26,
-        cycles=2.2,
-        strand_w=3 * SS,
-        rung_w=2 * SS,
-        node_r=4 * SS,
-        rung_step=16 * SS,
-    )
-    img = tmp.rotate(90, expand=True)
-
-    img = img.resize((w, h), Image.LANCZOS)
-    out = ASSETS / "dna_esquina.png"
-    img.save(out, "PNG")
-    print(f"Wrote {out} ({out.stat().st_size} bytes, {img.size[0]}x{img.size[1]})")
-
-
 def main() -> None:
     ASSETS.mkdir(parents=True, exist_ok=True)
     make_banner()
-    make_corner()
 
 
 if __name__ == "__main__":

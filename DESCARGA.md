@@ -7,7 +7,7 @@ Repositorio: https://github.com/carlosvibecoding/BASURA
 | Archivo | Enlace directo |
 |---------|----------------|
 | **Plantilla Excel** | https://github.com/carlosvibecoding/BASURA/raw/main/qPCR_plantilla.xlsx |
-| **Macro VBA v4.3** | https://github.com/carlosvibecoding/BASURA/raw/main/qpcr/Modulo_qPCR.bas |
+| **Macro VBA v4.3.1** | https://github.com/carlosvibecoding/BASURA/raw/main/qpcr/Modulo_qPCR.bas |
 | **Todo el proyecto (ZIP)** | https://github.com/carlosvibecoding/BASURA/archive/refs/heads/main.zip |
 | **Procesar sin macro** | https://github.com/carlosvibecoding/BASURA/raw/main/qpcr/procesar_placa.py |
 
@@ -15,9 +15,9 @@ Repositorio: https://github.com/carlosvibecoding/BASURA
 
 Al ejecutar **ProcesarPlaca**, si funciona debe decir:
 
-`Analisis completado: RGS12 (macro 4.3)`
+`Analisis completado: RGS12 (macro 4.3.1)`
 
-Si el mensaje **no** incluye **(macro 4.3)**, importa de nuevo `Modulo_qPCR.bas` y vuelve a abrir el libro.
+Si el mensaje **no** incluye **(macro 4.3.1)**, importa de nuevo `Modulo_qPCR.bas` y vuelve a abrir el libro.
 
 ## Importar la macro (resumen)
 
@@ -38,16 +38,15 @@ En **Instrucciones**:
 
 Muestras válidas: **letras + número** (`C10`, `S5`, `A12`, `ALC3`…). GLOBAL crea una tabla por cada prefijo distinto (no control).
 
-## Interfaz laboratorio (macro 4.3)
+## Interfaz laboratorio (macro 4.3.1)
 
-- **Franja superior A1:N** con banner de **doble hélice ADN** (imagen nítida, fina, no tapa el pegado).
-- **Panel derecho (columna O)**: título `qPCR · lab`, **ratón de laboratorio sobre placa-botón** (clic = procesar), **Limpiar** (rojo) y **+ Placa** (teal).
-- Decoración molecular sutil (esquina ADN) también en **Instrucciones, Resultados, GLOBAL, Datos y Calculos**.
-- La decoración ahora va en **PNG incrustado** (hoja oculta `Recursos`), no en cientos de formas VBA → más limpia y rápida.
+- **Franja superior A1:N** con banner de **doble hélice ADN** (imagen nítida, fina, no tapa el pegado). El banner **solo** va en RAW y viene en la plantilla: la macro ya **no lo duplica**.
+- **El resto de hojas (Instrucciones, Resultados, GLOBAL, Datos, Calculos) sin hebras de ADN**, para no tapar nada. Los títulos de GLOBAL conservan su color (**amarillo** controles, **verde** grupos) y los de Resultados también.
+- **Panel derecho (columna O)**: título `qPCR lab`, **ratón de laboratorio sobre placa-botón** (clic = procesar), **Limpiar** (rojo) y **+ Placa** (teal).
 - **No se escribe en A3** si ya hay datos pegados; el export va desde **A1**.
 - Detección del gen de interés en **tabla única** (gen + PPIA + SYP juntos) — sin cambios respecto a 4.2.1.
 
-**Obligatorio:** plantilla nueva + macro 4.3 + guardar como `.xlsm` + cerrar y abrir Excel.
+**Obligatorio:** plantilla nueva + macro 4.3.1 + guardar como `.xlsm` + cerrar y abrir Excel.
 
 | Control | Acción |
 |---------|--------|

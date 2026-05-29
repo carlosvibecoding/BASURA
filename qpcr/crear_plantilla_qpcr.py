@@ -121,7 +121,7 @@ def write_instructions(ws) -> None:
     ws["A22"] = "Nombres grupos (C=Controles;S=Suicidas;A=Alcohólicos):"
     ws["B22"] = ""
     ws["A23"] = "Boton procesar:"
-    ws["B23"] = "Clic en el raton (columna O, hoja RAW) = Procesar placa (macro 4.3)"
+    ws["B23"] = "Clic en el raton (columna O, hoja RAW) = Procesar placa (macro 4.3.1)"
     ws["B21"].font = BOLD
     ws.column_dimensions["B"].width = 55
 
@@ -415,43 +415,23 @@ def build_workbook(demo_raw: Path | None = None) -> Workbook:
 
     setup_datos_calc_sheets(wb)
     embed_recursos_lab(wb)
-    for name in ("Instrucciones", "Resultados", "GLOBAL", "Datos", "Calculos"):
-        if name in wb.sheetnames:
-            decorar_cabecera_hoja(wb[name], cols=8 if name != "Instrucciones" else 4)
+    # Sin decoracion ADN en las hojas de resultados: los titulos de GLOBAL
+    # (amarillo controles / verde grupos) y Resultados conservan su color.
     return wb
-
-
-def decorar_cabecera_hoja(ws, cols: int = 8) -> None:
-    """Tema molecular sutil: cabecera verde agua + esquina ADN."""
-    fill = PatternFill("solid", fgColor=LAB_HEADER)
-    for c in range(1, cols + 1):
-        cell = ws.cell(row=1, column=c)
-        if cell.fill is None or cell.fill.fgColor.rgb in (None, "00000000"):
-            cell.fill = fill
-        if cell.value and (cell.font is None or not cell.font.color):
-            cell.font = Font(bold=True, color=LAB_ACCENT)
-    if ws.row_dimensions[1].height is None or ws.row_dimensions[1].height < 18:
-        ws.row_dimensions[1].height = 18
-    corner = ASSETS_DIR / "dna_esquina.png"
-    if corner.is_file():
-        img = XlImage(str(corner))
-        img.width = 30
-        img.height = 30
-        ws.add_image(img, f"{get_column_letter(cols)}1")
 
 
 def embed_recursos_lab(wb: Workbook) -> None:
     """Hoja oculta Recursos con imágenes para la macro.
 
-    Orden FIJO de shapes (la macro las copia por índice):
-      1) ratón botón   2) banner ADN cabecera   3) esquina ADN
+    Orden FIJO de shapes (la macro copia el ratón por índice 1):
+      1) ratón botón   2) banner ADN (referencia; el banner de RAW va en la hoja RAW)
     """
     if "Recursos" in wb.sheetnames:
         ws = wb["Recursos"]
     else:
         ws = wb.create_sheet("Recursos")
     ws.sheet_state = "hidden"
-    ws["A20"] = "Recursos gráficos qPCR (no borrar). Orden: 1 raton, 2 banner, 3 esquina."
+    ws["A20"] = "Recursos gráficos qPCR (no borrar). Orden: 1 raton, 2 banner."
     if ASSET_RATON_BTN.is_file():
         img = XlImage(str(ASSET_RATON_BTN))
         img.width = 72
@@ -462,12 +442,6 @@ def embed_recursos_lab(wb: Workbook) -> None:
         bg.width = 680
         bg.height = 40
         ws.add_image(bg, "D1")
-    corner = ASSETS_DIR / "dna_esquina.png"
-    if corner.is_file():
-        cn = XlImage(str(corner))
-        cn.width = 30
-        cn.height = 30
-        ws.add_image(cn, "P1")
 
 
 def setup_datos_calc_sheets(wb) -> None:
