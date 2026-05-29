@@ -1,10 +1,11 @@
 Attribute VB_Name = "Modulo_qPCR"
 ' qPCR - Pegar export StepOne COMPLETO en RAW (celda A1). Macro: ProcesarPlaca
-' Version 3.6 - Fix bloque SYP (conCalcs); Calculos sin formulas
+' Version 3.7 - Promedio en col Prom dCt; cabeceras SYP alineadas (Q-Y)
 
 Option Explicit
 
-Private Const MACRO_VER As String = "3.6"
+Private Const MACRO_VER As String = "3.7"
+Private Const COL_BLOQUE_SYP As Long = 17
 Private Const CT_MIN As Double = 5#
 Private Const CT_MAX As Double = 50#
 Private Const SH_DATOS As String = "Datos"
@@ -853,7 +854,7 @@ Private Sub EscribirTodo(ws As Worksheet, wsG As Worksheet, orden As Collection,
         If okCalc(i) Then
             Call FilaCalc(ws, rowOut, 1, sample, goi, ixG, dP(i), avgP, _
                 (2 ^ (-(dP(i) - avgP)) > FC_EXTREMO Or 2 ^ (-(dP(i) - avgP)) < 1# / FC_EXTREMO))
-            Call FilaCalc(ws, rowOut, 17, sample, goi, ixG, dS(i), avgS, _
+            Call FilaCalc(ws, rowOut, COL_BLOQUE_SYP, sample, goi, ixG, dS(i), avgS, _
                 (2 ^ (-(dS(i) - avgS)) > FC_EXTREMO Or 2 ^ (-(dS(i) - avgS)) < 1# / FC_EXTREMO))
             If Left$(sample, 1) = "C" Then
                 cS.Add sample: cP.Add 2 ^ (-(dP(i) - avgP)): cY.Add 2 ^ (-(dS(i) - avgS))
@@ -862,7 +863,7 @@ Private Sub EscribirTodo(ws As Worksheet, wsG As Worksheet, orden As Collection,
             End If
         Else
             Call FilaIndeterminado(ws, rowOut, 1, sample, goi, ixG)
-            Call FilaIndeterminado(ws, rowOut, 17, sample, goi, ixG)
+            Call FilaIndeterminado(ws, rowOut, COL_BLOQUE_SYP, sample, goi, ixG)
             If Left$(sample, 1) = "C" Then
                 cS.Add sample: cP.Add "Indeterminado": cY.Add "Indeterminado"
             ElseIf Left$(sample, 1) = "S" Then
@@ -878,7 +879,7 @@ SigO:
         ixP = BuscarIdx(sample, HK_PPIA)
         ixS = BuscarIdx(sample, HK_SYP)
         If ixP > 0 Then Call Fila(ws, rowOut, 1, sample, HK_PPIA, ixP, 0, 0, 1, False, False)
-        If ixS > 0 Then Call Fila(ws, rowOut, 17, sample, HK_SYP, ixS, 0, 0, 1, False, False)
+        If ixS > 0 Then Call Fila(ws, rowOut, COL_BLOQUE_SYP, sample, HK_SYP, ixS, 0, 0, 1, False, False)
         rowOut = rowOut + 2
     Next i
 
@@ -893,8 +894,8 @@ Private Sub Cabeceras(ws As Worksheet, goi As String)
     For k = 0 To 8
         ws.Cells(1, k + 1).Value = h(k)
         ws.Cells(1, k + 1).Font.Bold = True
-        ws.Cells(1, k + 18).Value = h(k)
-        ws.Cells(1, k + 18).Font.Bold = True
+        ws.Cells(1, k + COL_BLOQUE_SYP).Value = h(k)
+        ws.Cells(1, k + COL_BLOQUE_SYP).Font.Bold = True
     Next k
     ws.Rows(2).Font.Bold = True
     ws.Rows(2).Interior.Color = RGB(242, 242, 242)
@@ -906,13 +907,17 @@ Private Sub Cabeceras(ws As Worksheet, goi As String)
 End Sub
 
 Private Sub EscribirFilaPromedios(ws As Worksheet, avgP As Double, avgS As Double)
+    ' Promedio C en columna "Prom. dCt (C)" (G y W), como en PLACA referencia
+    Dim cPromP As Long, cPromS As Long
+    cPromP = 7
+    cPromS = COL_BLOQUE_SYP + 6
     ws.Cells(2, 1).Value = "PROMEDIO controles (C)"
-    ws.Cells(2, 6).Value = avgP
-    ws.Cells(2, 22).Value = avgS
-    ws.Cells(2, 6).NumberFormat = "0.000000"
-    ws.Cells(2, 22).NumberFormat = "0.000000"
+    ws.Cells(2, cPromP).Value = avgP
+    ws.Cells(2, cPromS).Value = avgS
+    ws.Cells(2, cPromP).NumberFormat = "0.000000"
+    ws.Cells(2, cPromS).NumberFormat = "0.000000"
     ws.Cells(2, 5).Value = "(fijo)"
-    ws.Cells(2, 21).Value = "(fijo)"
+    ws.Cells(2, COL_BLOQUE_SYP + 4).Value = "(fijo)"
 End Sub
 
 Private Sub MarcarCelda(c As Range, rojo As Boolean, naranja As Boolean)

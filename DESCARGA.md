@@ -7,7 +7,7 @@ Repositorio: https://github.com/carlosvibecoding/BASURA
 | Archivo | Enlace directo |
 |---------|----------------|
 | **Plantilla Excel** | https://github.com/carlosvibecoding/BASURA/raw/main/qPCR_plantilla.xlsx |
-| **Macro VBA v3.5** | https://github.com/carlosvibecoding/BASURA/raw/main/qpcr/Modulo_qPCR.bas |
+| **Macro VBA v3.7** | https://github.com/carlosvibecoding/BASURA/raw/main/qpcr/Modulo_qPCR.bas |
 | **Todo el proyecto (ZIP)** | https://github.com/carlosvibecoding/BASURA/archive/refs/heads/main.zip |
 | **Procesar sin macro** | https://github.com/carlosvibecoding/BASURA/raw/main/qpcr/procesar_placa.py |
 
@@ -15,7 +15,7 @@ Repositorio: https://github.com/carlosvibecoding/BASURA
 
 Al ejecutar **ProcesarPlaca**, si funciona debe decir:
 
-`Analisis completado: RGS12 (macro 3.5)`
+`Analisis completado: RGS12 (macro 3.7)`
 
 Tras importar la macro, abre el libro de nuevo (o ejecuta **InstalarBotones**) para ver los botones en RAW.
 
@@ -55,7 +55,7 @@ Varias placas: pegar una debajo de otra (o usar **Añadir placa abajo**).
 
 ## Resultados
 
-- Fila **2**: promedio ΔCt de controles (C) **una sola vez** (PPIA col F, SYP col V).
+- Fila **2**: promedio ΔCt de controles (C) en **Prom. dCt (C)** (PPIA col G, SYP col W).
 - Fila **3+**: muestras (sin repetir el promedio en cada fila).
 - **Rojo**: indeterminado, Ct SD > 0,3 o valor 2^(-ΔΔCt) extremo.
 - **Naranja**: solo un duplicado Ct válido (se usa ese valor / media del instrumento).

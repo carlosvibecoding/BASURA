@@ -191,7 +191,7 @@ def write_results_sheet(ws, calcs, goi: str, data) -> None:
     goi_label = goi_display_name(goi)
     write_results_headers(ws, goi_label)
 
-    # Fila 2: promedio C una sola vez (bloques PPIA col 6 y SYP col 22)
+    # Fila 2: promedio C en columna Prom. dCt (G=7 y W=23)
     avg_ppi = statistics.mean(
         [c.ppi_dct for c in calcs if c.sample.startswith("C") and not c.flag_indeterminate]
     )
@@ -199,8 +199,8 @@ def write_results_sheet(ws, calcs, goi: str, data) -> None:
         [c.syp_dct for c in calcs if c.sample.startswith("C") and not c.flag_indeterminate]
     )
     ws.cell(row=2, column=1, value="PROMEDIO controles (C)").font = BOLD
-    ws.cell(row=2, column=6, value=round(avg_ppi, 6))
-    ws.cell(row=2, column=22, value=round(avg_syp, 6))
+    ws.cell(row=2, column=7, value=round(avg_ppi, 6))
+    ws.cell(row=2, column=23, value=round(avg_syp, 6))
 
     row = 3
     for item in calcs:
