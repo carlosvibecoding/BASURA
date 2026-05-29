@@ -9,6 +9,7 @@ Uso:
 from __future__ import annotations
 
 import argparse
+import statistics
 import sys
 from pathlib import Path
 
@@ -154,7 +155,7 @@ def write_sample_block(
 
     if write_calcs:
         put(r1, start_col + 5, round(dct, 6), True)
-        put(r1, start_col + 6, round(dct_mean_c, 6), True)
+        # Prom. dCt (C) solo en fila 2 (ver write_results_sheet)
         put(r1, start_col + 7, round(ddct, 6), True)
         put(r1, start_col + 8, round(fc, 6), True)
 
@@ -166,7 +167,18 @@ def write_results_sheet(ws, calcs, goi: str, data) -> None:
     goi_label = goi_display_name(goi)
     write_results_headers(ws, goi_label)
 
-    row = 2
+    # Fila 2: promedio C una sola vez (bloques PPIA col 6 y SYP col 22)
+    avg_ppi = statistics.mean(
+        [c.ppi_dct for c in calcs if c.sample.startswith("C")]
+    )
+    avg_syp = statistics.mean(
+        [c.syp_dct for c in calcs if c.sample.startswith("C")]
+    )
+    ws.cell(row=2, column=1, value="PROMEDIO controles (C)").font = BOLD
+    ws.cell(row=2, column=6, value=round(avg_ppi, 6))
+    ws.cell(row=2, column=22, value=round(avg_syp, 6))
+
+    row = 3
     for item in calcs:
         r1, r2 = row, row + 1
         write_sample_block(

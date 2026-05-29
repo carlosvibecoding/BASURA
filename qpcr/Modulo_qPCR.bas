@@ -1,10 +1,10 @@
 Attribute VB_Name = "Modulo_qPCR"
 ' qPCR - Pegar export StepOne COMPLETO en RAW (celda A1). Macro: ProcesarPlaca
-' Version 3.1
+' Version 3.2 - Botones, limpiar, promedio C una sola vez arriba
 
 Option Explicit
 
-Private Const MACRO_VER As String = "3.1"
+Private Const MACRO_VER As String = "3.2"
 Private Const HK_PPIA As String = "PPIA"
 Private Const HK_SYP As String = "SYP"
 Private Const SD_UMBRAL As Double = 0.3
@@ -43,15 +43,9 @@ Public Sub ProcesarPlaca()
     wsRes.Cells.Clear
     wsGlob.Cells.Clear
 
-    headerRow = BuscarCabecera(wsRaw, cS, cT, cCt, cM, cSD)
-    If headerRow = 0 Then Err.Raise 5, , "No se encontro cabecera Sample Name / Target Name / Ct."
-
-    lastRow = UltimaFila(wsRaw, headerRow, cS, cT)
-    bloque = LeerRango2D(wsRaw, headerRow + 1, 1, lastRow, 30)
-
     Set orden = New Collection
     G_N = 0
-    Call LeerBloque(bloque, cS, cT, cCt, cM, cSD, orden)
+    Call LeerTodoRAW(wsRaw, orden)
 
     If G_N = 0 Then Err.Raise 5, , "No hay muestras validas."
     goi = DetectarGOI()
@@ -61,6 +55,7 @@ Public Sub ProcesarPlaca()
     End If
 
     Call EscribirTodo(wsRes, wsGlob, orden, goi)
+    Call InstalarBotones
 
     Application.Calculation = xlCalculationAutomatic
     Application.EnableEvents = True
@@ -73,6 +68,65 @@ ErrH:
     Application.EnableEvents = True
     Application.ScreenUpdating = True
     MsgBox "Macro " & MACRO_VER & vbCrLf & vbCrLf & Err.Description, vbCritical, "qPCR"
+End Sub
+
+'--- Se ejecuta al abrir el libro (crea botones en RAW) ---
+Public Sub Auto_Open()
+    Call InstalarBotones
+End Sub
+
+'--- Botones en hoja RAW ---
+Public Sub InstalarBotones()
+    Dim ws As Worksheet
+    On Error Resume Next
+    Set ws = ThisWorkbook.Worksheets("RAW")
+    If ws Is Nothing Then Exit Sub
+    ws.Shapes("btn_qPCR_Procesar").Delete
+    ws.Shapes("btn_qPCR_Limpiar").Delete
+    ws.Shapes("btn_qPCR_Anadir").Delete
+    On Error GoTo 0
+    Call CrearBotonFormulario(ws, "btn_qPCR_Procesar", "ProcesarPlaca", "Procesar placa", 8, 4, 128, 26)
+    Call CrearBotonFormulario(ws, "btn_qPCR_Limpiar", "LimpiarDatos", "Limpiar datos", 142, 4, 110, 26)
+    Call CrearBotonFormulario(ws, "btn_qPCR_Anadir", "AnadirPlacaRAW", "Anadir placa abajo", 258, 4, 128, 26)
+End Sub
+
+Private Sub CrearBotonFormulario(ws As Worksheet, nombre As String, macro As String, _
+    texto As String, L As Single, T As Single, W As Single, H As Single)
+    Dim btn As Shape
+    Set btn = ws.Shapes.AddFormControl(Type:=xlButtonControl, Left:=L, Top:=T, Width:=W, Height:=H)
+    btn.Name = nombre
+    btn.OnAction = macro
+    btn.TextFrame.Characters.Text = texto
+End Sub
+
+'--- Borra RAW, Resultados y GLOBAL ---
+Public Sub LimpiarDatos()
+    Dim r As VbMsgBoxResult
+    r = MsgBox("Borrar todos los datos de RAW, Resultados y GLOBAL?", vbYesNo + vbQuestion, "qPCR")
+    If r <> vbYes Then Exit Sub
+    On Error Resume Next
+    ThisWorkbook.Worksheets("RAW").Cells.Clear
+    ThisWorkbook.Worksheets("Resultados").Cells.Clear
+    ThisWorkbook.Worksheets("GLOBAL").Cells.Clear
+    On Error GoTo 0
+    With ThisWorkbook.Worksheets("RAW")
+        .Range("A1").Value = "Pegue aqui el export COMPLETO del StepOne (A1). Luego: Procesar placa."
+        .Range("A1").Font.Italic = True
+    End With
+    Call InstalarBotones
+    MsgBox "Datos borrados.", vbInformation, "qPCR"
+End Sub
+
+'--- Deja una fila en blanco al final de RAW para pegar otra placa ---
+Public Sub AnadirPlacaRAW()
+    Dim ws As Worksheet
+    Dim lr As Long
+    Set ws = ThisWorkbook.Worksheets("RAW")
+    lr = ws.Cells(ws.Rows.Count, 2).End(xlUp).Row
+    ws.Cells(lr + 2, 1).Value = "--- Pegar aqui la siguiente placa (export completo) ---"
+    ws.Cells(lr + 3, 1).Select
+    MsgBox "Pegue el export de la nueva placa debajo de la linea indicada." & vbCrLf & _
+        "Luego pulse Procesar placa (procesa TODAS las placas pegadas en RAW).", vbInformation, "qPCR"
 End Sub
 
 Private Sub AsegurarHoja(ByVal nombreHoja As String)
@@ -254,6 +308,51 @@ Private Function MediaIdx(idx As Long) As Double
     End If
 End Function
 
+' Lee una o varias placas apiladas en RAW (cada una con su fila de cabecera)
+Private Sub LeerTodoRAW(ws As Worksheet, orden As Collection)
+    Dim r As Long
+    Dim headerRow As Long
+    Dim lastRow As Long
+    Dim cS As Long, cT As Long, cCt As Long, cM As Long, cSD As Long
+    Dim bloque As Variant
+    Dim maxR As Long
+
+    maxR = ws.UsedRange.Row + ws.UsedRange.Rows.Count - 1
+    If maxR < 20 Then maxR = 400
+    r = 1
+    Do While r <= maxR
+        headerRow = BuscarCabeceraDesde(ws, r, cS, cT, cCt, cM, cSD)
+        If headerRow = 0 Then Exit Do
+        lastRow = UltimaFila(ws, headerRow, cS, cT)
+        bloque = LeerRango2D(ws, headerRow + 1, 1, lastRow, 30)
+        Call LeerBloque(bloque, cS, cT, cCt, cM, cSD, orden)
+        r = lastRow + 1
+    Loop
+End Sub
+
+Private Function BuscarCabeceraDesde(ws As Worksheet, desdeFila As Long, _
+    ByRef cS As Long, ByRef cT As Long, ByRef cCt As Long, _
+    ByRef cM As Long, ByRef cSD As Long) As Long
+    Dim r As Long, c As Long, t As String
+    Dim okS As Boolean, okT As Boolean, okC As Boolean
+  BuscarCabeceraDesde = 0
+    For r = desdeFila To desdeFila + 25
+        cS = 0: cT = 0: cCt = 0: cM = 0: cSD = 0
+        okS = False: okT = False: okC = False
+        For c = 1 To 30
+            t = NormTxt(CStr(ws.Cells(r, c).Value2))
+            If t = "" Then GoTo Nx2
+            If InStr(t, "sample name") > 0 Then cS = c: okS = True
+            If InStr(t, "target name") > 0 Then cT = c: okT = True
+            If EsColumnaCtSuelto(t) Then cCt = c: okC = True
+            If InStr(t, "ct mean") > 0 And InStr(t, "delta") = 0 Then cM = c
+            If InStr(t, "ct sd") > 0 Then cSD = c
+Nx2:
+        Next c
+        If okS And okT And okC Then BuscarCabeceraDesde = r: Exit Function
+    Next r
+End Function
+
 Private Sub LeerBloque(bloque As Variant, cS As Long, cT As Long, cCt As Long, _
     cM As Long, cSD As Long, orden As Collection)
 
@@ -384,7 +483,8 @@ Private Sub EscribirTodo(ws As Worksheet, wsG As Worksheet, orden As Collection,
     Set cS = New Collection: Set cP = New Collection: Set cY = New Collection
     Set sS = New Collection: Set sP = New Collection: Set sY = New Collection
 
-    Call Cabeceras(ws)
+    Call Cabeceras(ws, goi)
+    Call EscribirFilaPromedios(ws, avgP, avgS)
 
     For i = 1 To n
         sample = orden(i)
@@ -402,13 +502,13 @@ Private Sub EscribirTodo(ws As Worksheet, wsG As Worksheet, orden As Collection,
     tit = goi
     If Len(tit) > 0 Then If Right$(tit, 1) = "r" Or Right$(tit, 1) = "R" Then tit = Left$(tit, Len(tit) - 1)
 
-    rowOut = 2
+    rowOut = 3
     For i = 1 To n
         sample = orden(i)
         ixG = BuscarIdx(sample, goi)
         If ixG = 0 Then GoTo SigO
-        Call Fila(ws, rowOut, 1, sample, goi, ixG, dP(i), avgP, dP(i) - avgP, 2 ^ (-(dP(i) - avgP)), G_CtSd(ixG) > SD_UMBRAL, True)
-        Call Fila(ws, rowOut, 17, sample, goi, ixG, dS(i), avgS, dS(i) - avgS, 2 ^ (-(dS(i) - avgS)), G_CtSd(ixG) > SD_UMBRAL, True)
+        Call Fila(ws, rowOut, 1, sample, goi, ixG, dP(i), dP(i) - avgP, 2 ^ (-(dP(i) - avgP)), G_CtSd(ixG) > SD_UMBRAL, True)
+        Call Fila(ws, rowOut, 17, sample, goi, ixG, dS(i), dS(i) - avgS, 2 ^ (-(dS(i) - avgS)), G_CtSd(ixG) > SD_UMBRAL, True)
         If Left$(sample, 1) = "C" Then
             cS.Add sample: cP.Add 2 ^ (-(dP(i) - avgP)): cY.Add 2 ^ (-(dS(i) - avgS))
         ElseIf Left$(sample, 1) = "S" Then
@@ -422,8 +522,8 @@ SigO:
         sample = orden(i)
         ixP = BuscarIdx(sample, HK_PPIA)
         ixS = BuscarIdx(sample, HK_SYP)
-        If ixP > 0 Then Call Fila(ws, rowOut, 1, sample, HK_PPIA, ixP, 0, 0, 0, 1, False, False)
-        If ixS > 0 Then Call Fila(ws, rowOut, 17, sample, HK_SYP, ixS, 0, 0, 0, 1, False, False)
+        If ixP > 0 Then Call Fila(ws, rowOut, 1, sample, HK_PPIA, ixP, 0, 0, 1, False, False)
+        If ixS > 0 Then Call Fila(ws, rowOut, 17, sample, HK_SYP, ixS, 0, 0, 1, False, False)
         rowOut = rowOut + 2
     Next i
 
@@ -431,20 +531,35 @@ SigO:
     Call Tabla(wsG, 6, "SUICIDAS " & tit & " PFC", RGB(146, 208, 80), sS, sP, sY)
 End Sub
 
-Private Sub Cabeceras(ws As Worksheet)
+Private Sub Cabeceras(ws As Worksheet, goi As String)
     Dim k As Long
     Dim h As Variant
-    h = Array("Sample Name", "Target Name", "Ct", "Ct Mean", "Ct SD", "dCt", "Prom C", "ddCt", "2^-ddCt")
+    h = Array("Sample Name", "Target Name", "Ct", "Ct Mean", "Ct SD", "dCt", "Prom. dCt (C)", "ddCt", "2^(-ddCt)")
     For k = 0 To 8
         ws.Cells(1, k + 1).Value = h(k)
         ws.Cells(1, k + 1).Font.Bold = True
         ws.Cells(1, k + 18).Value = h(k)
         ws.Cells(1, k + 18).Font.Bold = True
     Next k
+    ws.Rows(2).Font.Bold = True
+    ws.Rows(2).Interior.Color = RGB(242, 242, 242)
+    On Error Resume Next
+    ws.Activate
+    ws.Range("A4").Select
+    ActiveWindow.FreezePanes = True
+    On Error GoTo 0
+End Sub
+
+Private Sub EscribirFilaPromedios(ws As Worksheet, avgP As Double, avgS As Double)
+    ws.Cells(2, 1).Value = "PROMEDIO controles (C)"
+    ws.Cells(2, 6).Value = avgP
+    ws.Cells(2, 22).Value = avgS
+    ws.Cells(2, 5).Value = "(fijo)"
+    ws.Cells(2, 21).Value = "(fijo)"
 End Sub
 
 Private Sub Fila(ws As Worksheet, r As Long, sc As Long, sample As String, tgt As String, ix As Long, _
-    dCt As Double, avgC As Double, ddCt As Double, fc As Double, red As Boolean, calc As Boolean)
+    dCt As Double, ddCt As Double, fc As Double, red As Boolean, calc As Boolean)
     ws.Cells(r, sc).Value = sample
     ws.Cells(r, sc + 1).Value = tgt
     If G_nDup(ix) >= 1 Then ws.Cells(r, sc + 2).Value = G_Ct1(ix)
@@ -454,7 +569,7 @@ Private Sub Fila(ws As Worksheet, r As Long, sc As Long, sample As String, tgt A
     If red Then ws.Cells(r, sc).Font.Color = RGB(255, 0, 0)
     If calc Then
         ws.Cells(r, sc + 5).Value = dCt
-        ws.Cells(r, sc + 6).Value = avgC
+        ' Col 6 (Prom C): solo en fila 2, no se repite por muestra
         ws.Cells(r, sc + 7).Value = ddCt
         ws.Cells(r, sc + 8).Value = fc
     End If

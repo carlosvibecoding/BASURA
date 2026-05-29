@@ -15,9 +15,11 @@ Repositorio: https://github.com/carlosvibecoding/BASURA
 
 Al ejecutar **ProcesarPlaca**, si funciona debe decir:
 
-`Analisis completado: RGS12 (macro 3.1)`
+`Analisis completado: RGS12 (macro 3.2)`
 
-Si el mensaje **no** incluye **(macro 3.1)**, sigues con la macro antigua.
+Tras importar la macro, abre el libro de nuevo (o ejecuta **InstalarBotones**) para ver los botones en RAW.
+
+Si el mensaje **no** incluye **(macro 3.2)**, importa de nuevo `Modulo_qPCR.bas`.
 
 ## Importar la macro (resumen)
 
@@ -27,6 +29,14 @@ Si el mensaje **no** incluye **(macro 3.1)**, sigues con la macro antigua.
 4. **Archivo** → **Importar archivo** → `Modulo_qPCR.bas`
 5. Guardar y cerrar el editor
 
+## Botones en RAW (macro 3.2)
+
+| Botón | Acción |
+|-------|--------|
+| **Procesar placa** | Calcula Resultados y GLOBAL |
+| **Limpiar datos** | Borra RAW, Resultados y GLOBAL |
+| **Añadir placa abajo** | Marca dónde pegar otra placa; luego **Procesar** (lee todas) |
+
 ## Pegar datos
 
 En **RAW**, celda **A1**, pegar el export **completo** del StepOne:
@@ -35,7 +45,12 @@ En **RAW**, celda **A1**, pegar el export **completo** del StepOne:
 - Bloque **PPIA**
 - Bloque **SYP**
 
-No basta con pegar solo RGS12.
+Varias placas: pegar una debajo de otra (o usar **Añadir placa abajo**).
+
+## Resultados
+
+- Fila **2**: promedio ΔCt de controles (C) **una sola vez** (PPIA col F, SYP col V).
+- Fila **3+**: muestras (sin repetir el promedio en cada fila).
 
 ## Sin macro (alternativa)
 
