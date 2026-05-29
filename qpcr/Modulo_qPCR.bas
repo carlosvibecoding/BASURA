@@ -72,7 +72,7 @@ ErrH:
     Application.Calculation = xlCalculationAutomatic
     Application.EnableEvents = True
     Application.ScreenUpdating = True
-    MsgBox Err.Description, vbCritical, "qPCR"
+    MsgBox "Macro " & MACRO_VER & vbCrLf & vbCrLf & Err.Description, vbCritical, "qPCR"
 End Sub
 
 Private Sub AsegurarHoja(ByVal nombreHoja As String)
