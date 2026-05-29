@@ -15,7 +15,7 @@ Repositorio: https://github.com/carlosvibecoding/BASURA
 
 Al ejecutar **ProcesarPlaca**, si funciona debe decir:
 
-`Analisis completado: RGS12 (macro 3.2)`
+`Analisis completado: RGS12 (macro 3.3)`
 
 Tras importar la macro, abre el libro de nuevo (o ejecuta **InstalarBotones**) para ver los botones en RAW.
 
@@ -51,6 +51,10 @@ Varias placas: pegar una debajo de otra (o usar **Añadir placa abajo**).
 
 - Fila **2**: promedio ΔCt de controles (C) **una sola vez** (PPIA col F, SYP col V).
 - Fila **3+**: muestras (sin repetir el promedio en cada fila).
+- **Rojo**: indeterminado, Ct SD > 0,3 o valor 2^(-ΔΔCt) extremo.
+- **Naranja**: solo un duplicado Ct válido (se usa ese valor / media del instrumento).
+- **Indeterminado**: ambos Ct "Undetermined" → sin cálculo ΔΔCt.
+- **GLOBAL**: muestras ordenadas C2, C3… S1, S2…
 
 ## Sin macro (alternativa)
 

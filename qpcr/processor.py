@@ -11,24 +11,44 @@ from typing import Dict, List, Optional, Tuple
 
 HOUSEKEEPING = frozenset({"PPIA", "SYP"})
 SD_THRESHOLD = 0.3
+FC_EXTREME = 1000.0
 SAMPLE_RE = re.compile(r"^[CS]\d+$", re.IGNORECASE)
+INDET_RE = re.compile(r"undetermin|indetermin", re.I)
+
+
+def is_ct_indeterminate(ct: object) -> bool:
+    if ct is None or ct == "":
+        return True
+    if isinstance(ct, (int, float)):
+        return False
+    return bool(INDET_RE.search(str(ct)))
+
+
+def sample_sort_key(sample: str) -> tuple:
+    s = sample.upper()
+    prefix = 0 if s.startswith("C") else 1
+    num = int(s[1:]) if s[1:].isdigit() else 0
+    return (prefix, num)
 
 
 @dataclass
 class WellReading:
     ct_values: List[float] = field(default_factory=list)
+    ct_raw: List[str] = field(default_factory=list)
     ct_mean: Optional[float] = None
     ct_sd: Optional[float] = None
 
     def add_row(self, ct: object, ct_mean: object, ct_sd: object) -> None:
-        if ct != "" and ct is not None:
+        self.ct_raw.append("" if ct is None else str(ct).strip())
+        if not is_ct_indeterminate(ct):
             try:
                 self.ct_values.append(float(ct))
             except (TypeError, ValueError):
                 pass
         if self.ct_mean is None and ct_mean != "" and ct_mean is not None:
             try:
-                self.ct_mean = float(ct_mean)
+                if not is_ct_indeterminate(ct_mean):
+                    self.ct_mean = float(ct_mean)
             except (TypeError, ValueError):
                 pass
         if self.ct_sd is None and ct_sd != "" and ct_sd is not None:
@@ -36,6 +56,14 @@ class WellReading:
                 self.ct_sd = float(ct_sd)
             except (TypeError, ValueError):
                 pass
+
+    @property
+    def is_indeterminate(self) -> bool:
+        return len(self.ct_values) == 0
+
+    @property
+    def single_replicate(self) -> bool:
+        return len(self.ct_values) == 1
 
 
 @dataclass
@@ -47,6 +75,10 @@ class SampleCalcs:
     goi_mean: float
     goi_sd: float
     flag_high_sd: bool
+    flag_indeterminate: bool
+    flag_single_rep: bool
+    ct1_display: Optional[str]
+    ct2_display: Optional[str]
     ppi_dct: float
     ppi_dct_mean_c: float
     ppi_ddct: float
@@ -141,6 +173,7 @@ def parse_raw_rows(rows: List[List[object]]) -> Tuple[str, Dict[str, Dict[str, W
     for sample in data:
         if goi in data[sample]:
             sample_order.append(sample)
+    sample_order.sort(key=sample_sort_key)
 
     for ref in ("PPIA", "SYP"):
         if ref not in targets_seen:
@@ -170,28 +203,35 @@ def calculate_all(
         if goi not in data[sample]:
             continue
         goi_r = data[sample][goi]
+        ppi_r = data[sample].get("PPIA", WellReading())
+        syp_r = data[sample].get("SYP", WellReading())
+        if goi_r.is_indeterminate or ppi_r.is_indeterminate or syp_r.is_indeterminate:
+            continue
         goi_mean = _mean_or_none(goi_r)
-        if goi_mean is None:
+        ppi_mean = _mean_or_none(ppi_r)
+        syp_mean = _mean_or_none(syp_r)
+        if goi_mean is None or ppi_mean is None or syp_mean is None:
             continue
         goi_sd = goi_r.ct_sd if goi_r.ct_sd is not None else 0.0
         cts = goi_r.ct_values[:2]
-        while len(cts) < 2:
-            cts.append(None)
         ct1, ct2 = (cts + [None, None])[:2]
-
-        ppi_mean = _mean_or_none(data[sample].get("PPIA", WellReading()))
-        syp_mean = _mean_or_none(data[sample].get("SYP", WellReading()))
-        if ppi_mean is None or syp_mean is None:
-            continue
+        raw = goi_r.ct_raw[:2]
+        while len(raw) < 2:
+            raw.append("")
+        ct1_d, ct2_d = raw[0], raw[1] if len(raw) > 1 else ""
 
         dct_ppi[sample] = goi_mean - ppi_mean
         dct_syp[sample] = goi_mean - syp_mean
-        goi_info[sample] = (goi_mean, goi_sd, [x for x in (ct1, ct2) if x is not None])
-
-        if ct1 is None and goi_r.ct_values:
-            ct1 = goi_r.ct_values[0]
-        if ct2 is None and len(goi_r.ct_values) > 1:
-            ct2 = goi_r.ct_values[1]
+        goi_info[sample] = (
+            goi_mean,
+            goi_sd,
+            ct1,
+            ct2,
+            ct1_d,
+            ct2_d,
+            goi_r.single_replicate,
+            goi_r.is_indeterminate,
+        )
 
     c_samples = [s for s in sample_order if s.startswith("C") and s in dct_ppi]
     if not c_samples:
@@ -202,30 +242,49 @@ def calculate_all(
 
     results: List[SampleCalcs] = []
     for sample in sample_order:
-        if sample not in dct_ppi:
-            continue
-        goi_mean, goi_sd, cts = goi_info[sample]
-        ct1 = cts[0] if len(cts) > 0 else None
-        ct2 = cts[1] if len(cts) > 1 else None
-        ppi_ddct = dct_ppi[sample] - avg_ppi
-        syp_ddct = dct_syp[sample] - avg_syp
+        goi_r = data[sample].get(goi, WellReading())
+        ppi_r = data[sample].get("PPIA", WellReading())
+        syp_r = data[sample].get("SYP", WellReading())
+        raw = goi_r.ct_raw[:2]
+        while len(raw) < 2:
+            raw.append("")
+        indet = goi_r.is_indeterminate or ppi_r.is_indeterminate or syp_r.is_indeterminate
+        if sample in dct_ppi:
+            goi_mean, goi_sd, ct1, ct2, ct1_d, ct2_d, one_rep, _ = goi_info[sample]
+            ppi_ddct = dct_ppi[sample] - avg_ppi
+            syp_ddct = dct_syp[sample] - avg_syp
+            ppi_fc = 2 ** (-ppi_ddct)
+            syp_fc = 2 ** (-syp_ddct)
+        else:
+            goi_mean = _mean_or_none(goi_r) or 0.0
+            goi_sd = goi_r.ct_sd or 0.0
+            ct1 = goi_r.ct_values[0] if goi_r.ct_values else None
+            ct2 = goi_r.ct_values[1] if len(goi_r.ct_values) > 1 else None
+            ct1_d, ct2_d = raw[0], raw[1]
+            one_rep = goi_r.single_replicate
+            ppi_fc = syp_fc = 0.0
+            ppi_ddct = syp_ddct = 0.0
         results.append(
             SampleCalcs(
                 sample=sample,
                 goi=goi,
-                ct1=ct1,
-                ct2=ct2,
+                ct1=ct1 if not indet else None,
+                ct2=ct2 if not indet else None,
                 goi_mean=goi_mean,
                 goi_sd=goi_sd,
                 flag_high_sd=goi_sd > SD_THRESHOLD,
-                ppi_dct=dct_ppi[sample],
+                flag_indeterminate=indet,
+                flag_single_rep=one_rep if not indet else False,
+                ct1_display=ct1_d or None,
+                ct2_display=ct2_d or None,
+                ppi_dct=dct_ppi.get(sample, 0.0),
                 ppi_dct_mean_c=avg_ppi,
-                ppi_ddct=ppi_ddct,
-                ppi_fc=2 ** (-ppi_ddct),
-                syp_dct=dct_syp[sample],
+                ppi_ddct=ppi_ddct if sample in dct_ppi else 0.0,
+                ppi_fc=ppi_fc,
+                syp_dct=dct_syp.get(sample, 0.0),
                 syp_dct_mean_c=avg_syp,
-                syp_ddct=syp_ddct,
-                syp_fc=2 ** (-syp_ddct),
+                syp_ddct=syp_ddct if sample in dct_ppi else 0.0,
+                syp_fc=syp_fc,
             )
         )
     return results

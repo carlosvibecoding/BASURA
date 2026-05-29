@@ -24,6 +24,7 @@ from processor import (
     calculate_all,
     goi_display_name,
     parse_raw_rows,
+    sample_sort_key,
 )
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -35,7 +36,8 @@ HEADER_FILL_PPIA = PatternFill("solid", fgColor="D9E1F2")
 HEADER_FILL_SYP = PatternFill("solid", fgColor="E2EFDA")
 YELLOW_FILL = PatternFill("solid", fgColor="FFFF00")
 GREEN_FILL = PatternFill("solid", fgColor="92D050")
-RED_FONT = Font(color="FF0000")
+RED_FONT = Font(color="FF0000", bold=True)
+ORANGE_FONT = Font(color="FF8000", bold=True)
 BOLD = Font(bold=True)
 
 
@@ -130,9 +132,21 @@ def write_sample_block(
     fc: float,
     flag_red: bool,
     write_calcs: bool,
+    flag_indet: bool = False,
+    flag_one_rep: bool = False,
+    ct1_show: object = None,
+    ct2_show: object = None,
+    mean_show: object = None,
 ) -> int:
     """Escribe 2 filas (duplicado). Devuelve la siguiente fila libre."""
-    font = RED_FONT if flag_red else Font()
+    if flag_indet:
+        font = RED_FONT
+    elif flag_red:
+        font = RED_FONT
+    elif flag_one_rep:
+        font = ORANGE_FONT
+    else:
+        font = Font()
     r1, r2 = row, row + 1
 
     def put(r, col, val, calc_col: bool = False):
@@ -140,24 +154,32 @@ def write_sample_block(
             return
         cell = ws.cell(row=r, column=col, value=val)
         cell.border = BORDER
-        if calc_col and flag_red:
-            cell.font = font
-        elif col <= start_col + 4:
+        if calc_col or col <= start_col + 4:
             cell.font = font
 
     put(r1, start_col, sample)
     put(r1, start_col + 1, target)
-    put(r1, start_col + 2, ct1)
-    put(r1, start_col + 3, ct_mean)
+    c1 = ct1_show if ct1_show is not None else ct1
+    c2 = ct2_show if ct2_show is not None else ct2
+    mshow = mean_show if mean_show is not None else ( "Indeterminado" if flag_indet else ct_mean)
+    put(r1, start_col + 2, c1)
+    put(r1, start_col + 3, mshow)
     put(r1, start_col + 4, ct_sd)
-    if ct2 is not None:
-        put(r2, start_col + 2, ct2)
+    if c2 is not None and c2 != "":
+        put(r2, start_col + 2, c2)
 
     if write_calcs:
-        put(r1, start_col + 5, round(dct, 6), True)
-        # Prom. dCt (C) solo en fila 2 (ver write_results_sheet)
-        put(r1, start_col + 7, round(ddct, 6), True)
-        put(r1, start_col + 8, round(fc, 6), True)
+        if flag_indet:
+            put(r1, start_col + 5, "Indeterminado", True)
+            put(r1, start_col + 7, "Indeterminado", True)
+            put(r1, start_col + 8, "Indeterminado", True)
+        else:
+            put(r1, start_col + 5, round(dct, 6), True)
+            put(r1, start_col + 7, round(ddct, 6), True)
+            fc_val = round(fc, 6)
+            put(r1, start_col + 8, fc_val, True)
+            if fc > 1000 or (fc > 0 and fc < 0.001):
+                ws.cell(row=r1, column=start_col + 8).font = RED_FONT
 
     return row + 2
 
@@ -169,10 +191,10 @@ def write_results_sheet(ws, calcs, goi: str, data) -> None:
 
     # Fila 2: promedio C una sola vez (bloques PPIA col 6 y SYP col 22)
     avg_ppi = statistics.mean(
-        [c.ppi_dct for c in calcs if c.sample.startswith("C")]
+        [c.ppi_dct for c in calcs if c.sample.startswith("C") and not c.flag_indeterminate]
     )
     avg_syp = statistics.mean(
-        [c.syp_dct for c in calcs if c.sample.startswith("C")]
+        [c.syp_dct for c in calcs if c.sample.startswith("C") and not c.flag_indeterminate]
     )
     ws.cell(row=2, column=1, value="PROMEDIO controles (C)").font = BOLD
     ws.cell(row=2, column=6, value=round(avg_ppi, 6))
@@ -181,15 +203,20 @@ def write_results_sheet(ws, calcs, goi: str, data) -> None:
     row = 3
     for item in calcs:
         r1, r2 = row, row + 1
+        fr = item.flag_high_sd or item.flag_indeterminate or item.ppi_fc > 1000
         write_sample_block(
             ws, r1, 1, item.sample, item.goi, item.ct1, item.ct2,
             item.goi_mean, item.goi_sd, item.ppi_dct, item.ppi_dct_mean_c,
-            item.ppi_ddct, item.ppi_fc, item.flag_high_sd, True,
+            item.ppi_ddct, item.ppi_fc, fr, True,
+            item.flag_indeterminate, item.flag_single_rep,
+            item.ct1_display, item.ct2_display,
         )
         write_sample_block(
             ws, r1, 17, item.sample, item.goi, item.ct1, item.ct2,
             item.goi_mean, item.goi_sd, item.syp_dct, item.syp_dct_mean_c,
-            item.syp_ddct, item.syp_fc, item.flag_high_sd, True,
+            item.syp_ddct, item.syp_fc, fr, True,
+            item.flag_indeterminate, item.flag_single_rep,
+            item.ct1_display, item.ct2_display,
         )
         row += 2
 
@@ -225,8 +252,8 @@ def _mean(reading) -> float | None:
 def write_global_sheet(ws, calcs, goi: str) -> None:
     ws.title = "GLOBAL"
     goi_short = goi_display_name(goi)
-    controls = [c for c in calcs if c.sample.startswith("C")]
-    suicides = [c for c in calcs if c.sample.startswith("S")]
+    controls = sorted([c for c in calcs if c.sample.startswith("C")], key=lambda x: sample_sort_key(x.sample))
+    suicides = sorted([c for c in calcs if c.sample.startswith("S")], key=lambda x: sample_sort_key(x.sample))
 
     def write_table(start_col: int, title: str, title_fill, items):
         ws.merge_cells(
@@ -245,13 +272,18 @@ def write_global_sheet(ws, calcs, goi: str) -> None:
             c.border = BORDER
             c.alignment = Alignment(horizontal="center")
         for r_idx, item in enumerate(items, 3):
-            media = (item.ppi_fc + item.syp_fc) / 2
-            vals = [item.sample, item.ppi_fc, item.syp_fc, media]
+            if item.flag_indeterminate:
+                vals = [item.sample, "Indeterminado", "Indeterminado", "Indeterminado"]
+            else:
+                media = (item.ppi_fc + item.syp_fc) / 2
+                vals = [item.sample, item.ppi_fc, item.syp_fc, media]
             for i, val in enumerate(vals):
-                cell = ws.cell(row=r_idx, column=start_col + i, value=round(val, 6) if i > 0 else val)
+                cell = ws.cell(row=r_idx, column=start_col + i, value=round(val, 6) if i > 0 and isinstance(val, float) else val)
                 cell.border = BORDER
-                if item.flag_high_sd:
+                if item.flag_indeterminate or item.flag_high_sd:
                     cell.font = RED_FONT
+                elif item.flag_single_rep:
+                    cell.font = ORANGE_FONT
 
     write_table(1, f"CONTROLES {goi_short} PFC", YELLOW_FILL, controls)
     write_table(6, f"SUICIDAS {goi_short} PFC", GREEN_FILL, suicides)

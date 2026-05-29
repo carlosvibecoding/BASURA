@@ -1,13 +1,14 @@
 Attribute VB_Name = "Modulo_qPCR"
 ' qPCR - Pegar export StepOne COMPLETO en RAW (celda A1). Macro: ProcesarPlaca
-' Version 3.2 - Botones, limpiar, promedio C una sola vez arriba
+' Version 3.3 - Indeterminado, 1 replica marcada, orden GLOBAL
 
 Option Explicit
 
-Private Const MACRO_VER As String = "3.2"
+Private Const MACRO_VER As String = "3.3"
 Private Const HK_PPIA As String = "PPIA"
 Private Const HK_SYP As String = "SYP"
 Private Const SD_UMBRAL As Double = 0.3
+Private Const FC_EXTREMO As Double = 1000#
 Private Const MAX_REG As Long = 500
 
 Private G_Sample(1 To MAX_REG) As String
@@ -17,6 +18,13 @@ Private G_Ct2(1 To MAX_REG) As Double
 Private G_CtMean(1 To MAX_REG) As Double
 Private G_CtSd(1 To MAX_REG) As Double
 Private G_nDup(1 To MAX_REG) As Long
+Private G_nValidCt(1 To MAX_REG) As Long
+Private G_nUndet(1 To MAX_REG) As Long
+Private G_Ct1Txt(1 To MAX_REG) As String
+Private G_Ct2Txt(1 To MAX_REG) As String
+Private G_EsIndet(1 To MAX_REG) As Boolean
+Private G_UnReplica(1 To MAX_REG) As Boolean
+Private G_HasMean(1 To MAX_REG) As Boolean
 Private G_N As Long
 
 Public Sub ProcesarPlaca()
@@ -283,29 +291,88 @@ Private Function NuevoIdx(sample As String, tgt As String) As Long
     G_CtMean(G_N) = 0#
     G_CtSd(G_N) = 0#
     G_nDup(G_N) = 0
+    G_nValidCt(G_N) = 0
+    G_nUndet(G_N) = 0
+    G_Ct1Txt(G_N) = ""
+    G_Ct2Txt(G_N) = ""
+    G_EsIndet(G_N) = False
+    G_UnReplica(G_N) = False
+    G_HasMean(G_N) = False
     NuevoIdx = G_N
 End Function
 
-Private Sub AnadirCt(idx As Long, ct As Double, m As Variant, s As Variant)
+Private Function EsCtIndeterminado(v As Variant) As Boolean
+    Dim t As String
+    If IsEmpty(v) Then EsCtIndeterminado = True: Exit Function
+    If IsNumeric(v) Then EsCtIndeterminado = False: Exit Function
+    t = UCase$(Trim$(CStr(v)))
+    If t = "" Then EsCtIndeterminado = True: Exit Function
+    If InStr(t, "UNDETERMIN") > 0 Then EsCtIndeterminado = True: Exit Function
+    If InStr(t, "INDETERMIN") > 0 Then EsCtIndeterminado = True: Exit Function
+    If t = "N/A" Or t = "#N/A" Or t = "NA" Then EsCtIndeterminado = True
+End Function
+
+Private Sub AnadirCtValor(idx As Long, vCt As Variant, m As Variant, s As Variant)
     If idx < 1 Or idx > G_N Then Exit Sub
     G_nDup(idx) = G_nDup(idx) + 1
-    If G_nDup(idx) = 1 Then
-        G_Ct1(idx) = ct
-    ElseIf G_nDup(idx) = 2 Then
-        G_Ct2(idx) = ct
+    If EsCtIndeterminado(vCt) Then
+        G_nUndet(idx) = G_nUndet(idx) + 1
+        If G_nDup(idx) = 1 Then G_Ct1Txt(idx) = "Indeterminado"
+        If G_nDup(idx) = 2 Then G_Ct2Txt(idx) = "Indeterminado"
+    ElseIf IsNumeric(vCt) Then
+        G_nValidCt(idx) = G_nValidCt(idx) + 1
+        If G_nDup(idx) = 1 Then
+            G_Ct1(idx) = CDbl(vCt)
+            G_Ct1Txt(idx) = Trim$(CStr(vCt))
+        ElseIf G_nDup(idx) = 2 Then
+            G_Ct2(idx) = CDbl(vCt)
+            G_Ct2Txt(idx) = Trim$(CStr(vCt))
+        End If
     End If
-    If IsNumeric(m) Then G_CtMean(idx) = CDbl(m)
+    If IsNumeric(m) And Not EsCtIndeterminado(m) Then
+        G_CtMean(idx) = CDbl(m)
+        G_HasMean(idx) = True
+    End If
     If IsNumeric(s) Then G_CtSd(idx) = CDbl(s)
 End Sub
 
-Private Function MediaIdx(idx As Long) As Double
-    If G_CtMean(idx) <> 0# Then
-        MediaIdx = G_CtMean(idx)
-    ElseIf G_nDup(idx) >= 2 Then
-        MediaIdx = (G_Ct1(idx) + G_Ct2(idx)) / 2#
-    Else
-        MediaIdx = G_Ct1(idx)
+Private Sub FinalizarEstadoCt(idx As Long)
+    If idx < 1 Or idx > G_N Then Exit Sub
+    G_EsIndet(idx) = False
+    G_UnReplica(idx) = False
+    If G_nValidCt(idx) = 0 Then
+        G_EsIndet(idx) = True
+        Exit Sub
     End If
+    If G_nValidCt(idx) = 1 Then G_UnReplica(idx) = True
+    If G_nUndet(idx) >= 2 And G_nValidCt(idx) = 0 Then G_EsIndet(idx) = True
+End Sub
+
+Private Function MediaIdx(idx As Long) As Double
+    Call FinalizarEstadoCt(idx)
+    If G_EsIndet(idx) Then MediaIdx = 0#: Exit Function
+    If G_HasMean(idx) Then
+        MediaIdx = G_CtMean(idx)
+        Exit Function
+    End If
+    If G_nValidCt(idx) >= 2 Then
+        MediaIdx = (G_Ct1(idx) + G_Ct2(idx)) / 2#
+    ElseIf G_nValidCt(idx) = 1 Then
+        MediaIdx = G_Ct1(idx)
+        If G_Ct2Txt(idx) <> "" And G_nValidCt(idx) = 1 And G_Ct1Txt(idx) = "" Then MediaIdx = G_Ct2(idx)
+    Else
+        MediaIdx = 0#
+    End If
+End Function
+
+Private Function EsIndetIdx(idx As Long) As Boolean
+    Call FinalizarEstadoCt(idx)
+    EsIndetIdx = G_EsIndet(idx)
+End Function
+
+Private Function UnReplicaIdx(idx As Long) As Boolean
+    Call FinalizarEstadoCt(idx)
+    UnReplicaIdx = G_UnReplica(idx) And Not G_EsIndet(idx)
 End Function
 
 ' Lee una o varias placas apiladas en RAW (cada una con su fila de cabecera)
@@ -378,8 +445,7 @@ Private Sub LeerBloque(bloque As Variant, cS As Long, cT As Long, cCt As Long, _
 
         idx = BuscarIdx(sample, tgt)
         If idx = 0 Then idx = NuevoIdx(sample, tgt)
-        v = ValNum(bloque, f, cCt)
-        If IsNumeric(v) Then Call AnadirCt(idx, CDbl(v), ValNum(bloque, f, cM), ValNum(bloque, f, cSD))
+        Call AnadirCtValor(idx, ValNum(bloque, f, cCt), ValNum(bloque, f, cM), ValNum(bloque, f, cSD))
 Sig:
     Next f
 End Sub
@@ -454,17 +520,65 @@ Private Function ExisteGen(tgt As String) As Boolean
     Next i
 End Function
 
-Private Function PromedioC(dCt() As Double, n As Long, orden As Collection) As Double
+Private Function PromedioC(dCt() As Double, n As Long, orden As Collection, goi As String, usarPPI As Boolean) As Double
     Dim i As Long, suma As Double, cnt As Long
+    Dim ixG As Long
     suma = 0#: cnt = 0
     For i = 1 To n
-        If Left$(orden(i), 1) = "C" Then
-            suma = suma + dCt(i)
-            cnt = cnt + 1
+        If Left$(orden(i), 1) <> "C" Then GoTo SigP
+        ixG = BuscarIdx(orden(i), goi)
+        If ixG > 0 Then
+            If EsIndetIdx(ixG) Then GoTo SigP
+            If usarPPI Then
+                If EsIndetIdx(BuscarIdx(orden(i), HK_PPIA)) Then GoTo SigP
+            Else
+                If EsIndetIdx(BuscarIdx(orden(i), HK_SYP)) Then GoTo SigP
+            End If
         End If
+        suma = suma + dCt(i)
+        cnt = cnt + 1
+SigP:
     Next i
     If cnt > 0 Then PromedioC = suma / CDbl(cnt)
 End Function
+
+Private Function OrdenClaveMuestra(s As String) As Long
+    Dim n As Long
+    n = 0
+    On Error Resume Next
+    n = CLng(Val(Mid$(s, 2)))
+    On Error GoTo 0
+    If Left$(s, 1) = "C" Then
+        OrdenClaveMuestra = n
+    Else
+        OrdenClaveMuestra = 1000000 + n
+    End If
+End Function
+
+Private Sub OrdenarMuestras(orden As Collection)
+    Dim arr() As String
+    Dim i As Long, j As Long
+    Dim n As Long, tmp As String
+    n = orden.Count
+    If n < 2 Then Exit Sub
+    ReDim arr(1 To n)
+    For i = 1 To n
+        arr(i) = orden(i)
+    Next i
+    For i = 1 To n - 1
+        For j = i + 1 To n
+            If OrdenClaveMuestra(arr(j)) < OrdenClaveMuestra(arr(i)) Then
+                tmp = arr(i): arr(i) = arr(j): arr(j) = tmp
+            End If
+        Next j
+    Next i
+    Do While orden.Count > 0
+        orden.Remove 1
+    Loop
+    For i = 1 To n
+        orden.Add arr(i)
+    Next i
+End Sub
 
 Private Sub EscribirTodo(ws As Worksheet, wsG As Worksheet, orden As Collection, goi As String)
     Dim n As Long, i As Long, rowOut As Long
@@ -476,29 +590,37 @@ Private Sub EscribirTodo(ws As Worksheet, wsG As Worksheet, orden As Collection,
     Dim cS As Collection, cP As Collection, cY As Collection
     Dim sS As Collection, sP As Collection, sY As Collection
 
+    Call OrdenarMuestras orden
+
     n = orden.Count
     If n = 0 Then Exit Sub
     ReDim dP(1 To n)
     ReDim dS(1 To n)
+    Dim okCalc() As Boolean
+    ReDim okCalc(1 To n)
     Set cS = New Collection: Set cP = New Collection: Set cY = New Collection
     Set sS = New Collection: Set sP = New Collection: Set sY = New Collection
 
     Call Cabeceras(ws, goi)
-    Call EscribirFilaPromedios(ws, avgP, avgS)
 
     For i = 1 To n
+        okCalc(i) = False
         sample = orden(i)
         ixG = BuscarIdx(sample, goi)
         ixP = BuscarIdx(sample, HK_PPIA)
         ixS = BuscarIdx(sample, HK_SYP)
         If ixG > 0 And ixP > 0 And ixS > 0 Then
-            dP(i) = MediaIdx(ixG) - MediaIdx(ixP)
-            dS(i) = MediaIdx(ixG) - MediaIdx(ixS)
+            If Not EsIndetIdx(ixG) And Not EsIndetIdx(ixP) And Not EsIndetIdx(ixS) Then
+                dP(i) = MediaIdx(ixG) - MediaIdx(ixP)
+                dS(i) = MediaIdx(ixG) - MediaIdx(ixS)
+                okCalc(i) = True
+            End If
         End If
     Next i
 
-    avgP = PromedioC(dP, n, orden)
-    avgS = PromedioC(dS, n, orden)
+    avgP = PromedioC(dP, n, orden, goi, True)
+    avgS = PromedioC(dS, n, orden, goi, False)
+    Call EscribirFilaPromedios(ws, avgP, avgS)
     tit = goi
     If Len(tit) > 0 Then If Right$(tit, 1) = "r" Or Right$(tit, 1) = "R" Then tit = Left$(tit, Len(tit) - 1)
 
@@ -507,12 +629,22 @@ Private Sub EscribirTodo(ws As Worksheet, wsG As Worksheet, orden As Collection,
         sample = orden(i)
         ixG = BuscarIdx(sample, goi)
         If ixG = 0 Then GoTo SigO
-        Call Fila(ws, rowOut, 1, sample, goi, ixG, dP(i), dP(i) - avgP, 2 ^ (-(dP(i) - avgP)), G_CtSd(ixG) > SD_UMBRAL, True)
-        Call Fila(ws, rowOut, 17, sample, goi, ixG, dS(i), dS(i) - avgS, 2 ^ (-(dS(i) - avgS)), G_CtSd(ixG) > SD_UMBRAL, True)
-        If Left$(sample, 1) = "C" Then
-            cS.Add sample: cP.Add 2 ^ (-(dP(i) - avgP)): cY.Add 2 ^ (-(dS(i) - avgS))
-        ElseIf Left$(sample, 1) = "S" Then
-            sS.Add sample: sP.Add 2 ^ (-(dP(i) - avgP)): sY.Add 2 ^ (-(dS(i) - avgS))
+        If okCalc(i) Then
+            Call FilaCalc(ws, rowOut, 1, sample, goi, ixG, dP(i), avgP, True)
+            Call FilaCalc(ws, rowOut, 17, sample, goi, ixG, dS(i), avgS, True)
+            If Left$(sample, 1) = "C" Then
+                cS.Add sample: cP.Add 2 ^ (-(dP(i) - avgP)): cY.Add 2 ^ (-(dS(i) - avgS))
+            ElseIf Left$(sample, 1) = "S" Then
+                sS.Add sample: sP.Add 2 ^ (-(dP(i) - avgP)): sY.Add 2 ^ (-(dS(i) - avgS))
+            End If
+        Else
+            Call FilaIndeterminado(ws, rowOut, 1, sample, goi, ixG)
+            Call FilaIndeterminado(ws, rowOut, 17, sample, goi, ixG)
+            If Left$(sample, 1) = "C" Then
+                cS.Add sample: cP.Add "Indeterminado": cY.Add "Indeterminado"
+            ElseIf Left$(sample, 1) = "S" Then
+                sS.Add sample: sP.Add "Indeterminado": sY.Add "Indeterminado"
+            End If
         End If
         rowOut = rowOut + 2
 SigO:
@@ -527,8 +659,8 @@ SigO:
         rowOut = rowOut + 2
     Next i
 
-    Call Tabla(wsG, 1, "CONTROLES " & tit & " PFC", RGB(255, 255, 0), cS, cP, cY)
-    Call Tabla(wsG, 6, "SUICIDAS " & tit & " PFC", RGB(146, 208, 80), sS, sP, sY)
+    Call TablaOrdenada(wsG, 1, "CONTROLES " & tit & " PFC", RGB(255, 255, 0), cS, cP, cY)
+    Call TablaOrdenada(wsG, 6, "SUICIDAS " & tit & " PFC", RGB(146, 208, 80), sS, sP, sY)
 End Sub
 
 Private Sub Cabeceras(ws As Worksheet, goi As String)
@@ -558,26 +690,98 @@ Private Sub EscribirFilaPromedios(ws As Worksheet, avgP As Double, avgS As Doubl
     ws.Cells(2, 21).Value = "(fijo)"
 End Sub
 
+Private Sub MarcarCelda(c As Range, rojo As Boolean, naranja As Boolean)
+    If rojo Then
+        c.Font.Color = RGB(255, 0, 0)
+        c.Font.Bold = True
+    ElseIf naranja Then
+        c.Font.Color = RGB(255, 128, 0)
+        c.Font.Bold = True
+    End If
+End Sub
+
+Private Sub EscribirCtCeldas(ws As Worksheet, r As Long, sc As Long, ix As Long)
+    If G_Ct1Txt(ix) <> "" Then
+        ws.Cells(r, sc + 2).Value = G_Ct1Txt(ix)
+    ElseIf G_nValidCt(ix) >= 1 Then
+        ws.Cells(r, sc + 2).Value = G_Ct1(ix)
+    End If
+    If G_Ct2Txt(ix) <> "" Then
+        ws.Cells(r + 1, sc + 2).Value = G_Ct2Txt(ix)
+    ElseIf G_nDup(ix) >= 2 And G_nValidCt(ix) >= 2 Then
+        ws.Cells(r + 1, sc + 2).Value = G_Ct2(ix)
+    End If
+    If EsIndetIdx(ix) Then
+        ws.Cells(r, sc + 3).Value = "Indeterminado"
+    Else
+        ws.Cells(r, sc + 3).Value = MediaIdx(ix)
+    End If
+    ws.Cells(r, sc + 4).Value = G_CtSd(ix)
+End Sub
+
+Private Sub FilaCalc(ws As Worksheet, r As Long, sc As Long, sample As String, tgt As String, ix As Long, _
+    dCt As Double, avgC As Double, conCalcs As Boolean)
+    Dim ddCt As Double, fc As Double
+    Dim rojo As Boolean, naranja As Boolean
+    ws.Cells(r, sc).Value = sample
+    ws.Cells(r, sc + 1).Value = tgt
+    Call EscribirCtCeldas(ws, r, sc, ix)
+    rojo = (G_CtSd(ix) > SD_UMBRAL)
+    naranja = UnReplicaIdx(ix)
+    Call MarcarCelda(ws.Cells(r, sc), rojo Or EsIndetIdx(ix), naranja)
+    If conCalcs Then
+        ddCt = dCt - avgC
+        fc = 2 ^ (-ddCt)
+        ws.Cells(r, sc + 5).Value = dCt
+        ws.Cells(r, sc + 7).Value = ddCt
+        ws.Cells(r, sc + 8).Value = fc
+        If fc > FC_EXTREMO Or fc < 1# / FC_EXTREMO Then rojo = True
+        Call MarcarCelda(ws.Cells(r, sc + 8), rojo, naranja)
+        Call MarcarCelda(ws.Cells(r, sc + 5), rojo, naranja)
+    End If
+End Sub
+
+Private Sub FilaIndeterminado(ws As Worksheet, r As Long, sc As Long, sample As String, tgt As String, ix As Long)
+    ws.Cells(r, sc).Value = sample
+    ws.Cells(r, sc + 1).Value = tgt
+    Call EscribirCtCeldas(ws, r, sc, ix)
+    ws.Cells(r, sc + 5).Value = "Indeterminado"
+    ws.Cells(r, sc + 7).Value = "Indeterminado"
+    ws.Cells(r, sc + 8).Value = "Indeterminado"
+    Call MarcarCelda(ws.Cells(r, sc), True, UnReplicaIdx(ix))
+    Call MarcarCelda(ws.Cells(r, sc + 8), True, False)
+End Sub
+
 Private Sub Fila(ws As Worksheet, r As Long, sc As Long, sample As String, tgt As String, ix As Long, _
     dCt As Double, ddCt As Double, fc As Double, red As Boolean, calc As Boolean)
     ws.Cells(r, sc).Value = sample
     ws.Cells(r, sc + 1).Value = tgt
-    If G_nDup(ix) >= 1 Then ws.Cells(r, sc + 2).Value = G_Ct1(ix)
-    ws.Cells(r, sc + 3).Value = MediaIdx(ix)
-    ws.Cells(r, sc + 4).Value = G_CtSd(ix)
-    If G_nDup(ix) >= 2 Then ws.Cells(r + 1, sc + 2).Value = G_Ct2(ix)
-    If red Then ws.Cells(r, sc).Font.Color = RGB(255, 0, 0)
+    Call EscribirCtCeldas(ws, r, sc, ix)
     If calc Then
         ws.Cells(r, sc + 5).Value = dCt
-        ' Col 6 (Prom C): solo en fila 2, no se repite por muestra
         ws.Cells(r, sc + 7).Value = ddCt
         ws.Cells(r, sc + 8).Value = fc
     End If
 End Sub
 
-Private Sub Tabla(ws As Worksheet, sc As Long, tit As String, clr As Long, _
+Private Sub TablaOrdenada(ws As Worksheet, sc As Long, tit As String, clr As Long, _
     suj As Collection, vP As Collection, vY As Collection)
-    Dim i As Long, r As Long, p As Double, y As Double
+    Dim n As Long, i As Long, j As Long, r As Long
+    Dim ord() As Long, tmp As Long
+    Dim p As Variant, y As Variant, media As Variant
+    n = suj.Count
+    If n = 0 Then Exit Sub
+    ReDim ord(1 To n)
+    For i = 1 To n
+        ord(i) = i
+    Next i
+    For i = 1 To n - 1
+        For j = i + 1 To n
+            If OrdenClaveMuestra(CStr(suj(ord(j)))) < OrdenClaveMuestra(CStr(suj(ord(i)))) Then
+                tmp = ord(i): ord(i) = ord(j): ord(j) = tmp
+            End If
+        Next j
+    Next i
     ws.Range(ws.Cells(1, sc), ws.Cells(1, sc + 3)).Merge
     ws.Cells(1, sc).Value = tit
     ws.Cells(1, sc).Interior.Color = clr
@@ -586,12 +790,24 @@ Private Sub Tabla(ws As Worksheet, sc As Long, tit As String, clr As Long, _
     ws.Cells(2, sc + 1).Value = "PPIA"
     ws.Cells(2, sc + 2).Value = "SYP"
     ws.Cells(2, sc + 3).Value = "MEDIA"
-    For i = 1 To suj.Count
+    For i = 1 To n
         r = i + 2
-        p = vP(i): y = vY(i)
-        ws.Cells(r, sc).Value = suj(i)
+        p = vP(ord(i)): y = vY(ord(i))
+        ws.Cells(r, sc).Value = suj(ord(i))
         ws.Cells(r, sc + 1).Value = p
         ws.Cells(r, sc + 2).Value = y
-        ws.Cells(r, sc + 3).Value = (p + y) / 2#
+        If IsNumeric(p) And IsNumeric(y) Then
+            media = (CDbl(p) + CDbl(y)) / 2#
+            ws.Cells(r, sc + 3).Value = media
+            If CDbl(p) > FC_EXTREMO Or CDbl(y) > FC_EXTREMO Then
+                Call MarcarCelda(ws.Cells(r, sc + 3), True, False)
+            End If
+        Else
+            ws.Cells(r, sc + 3).Value = "Indeterminado"
+            Call MarcarCelda(ws.Cells(r, sc + 3), True, False)
+        End If
+        If VarType(p) = vbString Or VarType(y) = vbString Then
+            Call MarcarCelda(ws.Cells(r, sc), True, False)
+        End If
     Next i
 End Sub
